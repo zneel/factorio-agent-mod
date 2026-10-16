@@ -33,7 +33,7 @@ def parse(argv):
 
 
 # tools that never need (or spawn) a character
-NO_CHARACTER = {"plant_status", "production", "audit", "where", "jobs", "post_job", "update_job", "team", "belt_status", "set_time_mode",
+NO_CHARACTER = {"plant_status", "probe", "can_place", "production", "audit", "where", "jobs", "post_job", "update_job", "team", "belt_status", "set_time_mode",
                 "set_game_speed"}
 
 
