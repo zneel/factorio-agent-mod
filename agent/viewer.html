@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Factorio Agent View</title>
+<style>
+  :root { --bg:#14161a; --panel:#1c1f25; --line:#2c313a; --fg:#d8dce3; --dim:#8a919c; --accent:#f0a030; --bad:#ff4a4a; --warn:#ffb020; --ok:#5fcf6f; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:13px/1.4 system-ui, sans-serif; overflow:hidden; }
+  #wrap { display:flex; height:100%; }
+  #mapbox { flex:1; position:relative; min-width:0; }
+  canvas { display:block; width:100%; height:100%; cursor:grab; }
+  canvas.drag { cursor:grabbing; }
+  #side { width:340px; background:var(--panel); border-left:1px solid var(--line); overflow-y:auto; padding:10px 12px; }
+  h2 { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin:14px 0 6px; }
+  .row { display:flex; justify-content:space-between; gap:8px; }
+  .dim { color:var(--dim); }
+  .bad { color:var(--bad); } .warn { color:var(--warn); } .ok { color:var(--ok); }
+  .bar { height:8px; background:#2a2e36; border-radius:4px; overflow:hidden; margin:4px 0; }
+  .bar > div { height:100%; background:var(--accent); }
+  .agent { padding:6px 8px; margin:4px 0; border:1px solid var(--line); border-radius:6px; cursor:pointer; }
+  .agent:hover { border-color:#4a5262; }
+  .agent .name { font-weight:600; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  td { padding:1px 0; vertical-align:top; }
+  td.n { text-align:right; white-space:nowrap; padding-left:6px; }
+  .prob { cursor:pointer; font-size:12px; }
+  .prob:hover { text-decoration:underline; }
+  #chat div { margin:2px 0; font-size:12px; word-wrap:break-word; }
+  #hud { position:absolute; left:10px; top:10px; display:flex; gap:6px; flex-wrap:wrap; }
+  #hud button, #hud select { background:#232730ee; color:var(--fg); border:1px solid var(--line); border-radius:5px; padding:4px 8px; font:inherit; cursor:pointer; }
+  #status { position:absolute; left:10px; bottom:10px; background:#14161acc; padding:4px 8px; border-radius:5px; font-size:12px; }
+  #tip { position:absolute; pointer-events:none; background:#000d; padding:4px 7px; border-radius:4px; font-size:12px; display:none; white-space:nowrap; }
+  @media (max-width: 760px) { #wrap { flex-direction:column; } #side { width:100%; height:40%; border-left:0; border-top:1px solid var(--line); } }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="mapbox">
+    <canvas id="cv"></canvas>
+    <div id="hud">
+      <select id="follow"><option value="">free camera</option></select>
+      <button id="fit">fit base</button>
+      <button id="grid">grid</button>
+    </div>
+    <div id="status">connecting…</div>
+    <div id="tip"></div>
+  </div>
+  <div id="side">
+    <div id="game" class="dim">waiting for data…</div>
+    <h2>Agents</h2><div id="agents"></div>
+    <h2>Research</h2><div id="research"></div>
+    <h2>Problems</h2><div id="problems" class="dim">none</div>
+    <h2>Buildings</h2><div id="counts"></div>
+    <h2>Chat</h2><div id="chat" class="dim"></div>
+  </div>
+</div>
+<script src="viewer_sprites.js"></script>
+<script>
+const POLL_MS = 1500;
+const OK = new Set(["working","normal","full_output","waiting_for_source_items","waiting_for_space_in_destination","fully_charged","charging","discharging","waiting_for_target_to_be_built",undefined,null]);
+const WARN = new Set(["full_output","waiting_for_space_in_destination","waiting_for_source_items","no_ingredients","no_input_fluid","item_ingredient_shortage","fluid_ingredient_shortage","waiting_to_launch_rocket"]);
+const RES_COLORS = {"iron-ore":"#5c7a99","copper-ore":"#b8673c","coal":"#3a3a3a","stone":"#a8946a","uranium-ore":"#64c832","crude-oil":"#7a3c96"};
+// footprint for fallback mode (old mod gives no bounding box)
+const SIZE = {"burner-mining-drill":2,"electric-mining-drill":3,"stone-furnace":2,"steel-furnace":2,"electric-furnace":3,
+  "assembling-machine-1":3,"assembling-machine-2":3,"assembling-machine-3":3,"lab":3,"boiler":[3,2],"steam-engine":[3,5],
+  "offshore-pump":[1,2],"wooden-chest":1,"iron-chest":1,"steel-chest":1,"medium-electric-pole":1,"big-electric-pole":2,
+  "substation":2,"splitter":[2,1],"fast-splitter":[2,1],"express-splitter":[2,1],"oil-refinery":5,"chemical-plant":3,
+  "storage-tank":3,"radar":3,"rocket-silo":9,"solar-panel":3,"accumulator":2,"pumpjack":3,"centrifuge":3,"beacon":3,
+  "roboport":4,"stone-wall":1,"gun-turret":2,"laser-turret":2};
+
+function category(e) {
+  const n = e.n, t = e.t || "";
+  if (/belt|splitter|loader/.test(n) || /belt|splitter/.test(t)) return "belt";
+  if (/inserter/.test(n)) return "inserter";
+  if (/drill|pumpjack/.test(n)) return "drill";
+  if (/furnace/.test(n)) return "furnace";
+  if (/assembling|chemical|refinery|centrifuge/.test(n)) return "assembler";
+  if (/^lab$/.test(n)) return "lab";
+  if (/boiler|steam-engine|solar|accumulator|offshore|steam-turbine|reactor/.test(n)) return "power";
+  if (/pole|substation/.test(n)) return "pole";
+  if (/pipe|pump|tank/.test(n)) return "pipe";
+  if (/chest|container/.test(n) || t === "container") return "chest";
+  if (/silo/.test(n)) return "silo";
+  if (/turret|wall|gate/.test(n)) return "defense";
+  return "other";
+}
+const CAT_COLOR = {belt:"#c9a227",inserter:"#7fa7d8",drill:"#6f8f5f",furnace:"#a8603a",assembler:"#4f86b0",lab:"#c04fb0",
+  power:"#d0c050",pole:"#8c6a4a",pipe:"#5a7d8c",chest:"#9a7b4f",silo:"#e0e0e0",defense:"#a05050",other:"#777"};
+const DIRV = d => { const a = (d||0) * Math.PI / 8; return [Math.sin(a), -Math.cos(a)]; };
+
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+let data = null, resources = null, resKey = null, resCanvas = null;
+let view = {x: 0, y: 0, s: 16}; // center tile, pixels per tile
+let fitted = false, showGrid = false, follow = "";
+let hover = null, sorted = [], sortedFor = null;
+
+function resize() { const r = cv.getBoundingClientRect(); cv.width = r.width * devicePixelRatio; cv.height = r.height * devicePixelRatio; draw(); }
+window.addEventListener("resize", resize);
+const toScreen = (x, y) => [(x - view.x) * view.s + cv.width / 2 / devicePixelRatio, (y - view.y) * view.s + cv.height / 2 / devicePixelRatio];
+const toWorld = (px, py) => [(px - cv.width / 2 / devicePixelRatio) / view.s + view.x, (py - cv.height / 2 / devicePixelRatio) / view.s + view.y];
+
+// pan / zoom
+let drag = null;
+cv.addEventListener("mousedown", e => { drag = {x: e.clientX, y: e.clientY, vx: view.x, vy: view.y}; cv.classList.add("drag"); });
+window.addEventListener("mouseup", () => { drag = null; cv.classList.remove("drag"); });
+window.addEventListener("mousemove", e => {
+  if (drag) {
+    view.x = drag.vx - (e.clientX - drag.x) / view.s; view.y = drag.vy - (e.clientY - drag.y) / view.s;
+    if (follow) { follow = ""; document.getElementById("follow").value = ""; }
+    draw();
+  }
+  const r = cv.getBoundingClientRect();
+  updateTip(e.clientX - r.left, e.clientY - r.top, e.target === cv);
+});
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  const r = cv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+  const [wx, wy] = toWorld(px, py);
+  view.s = Math.min(128, Math.max(1, view.s * Math.pow(1.0015, -e.deltaY)));
+  if (!follow) { view.x = wx - (px - r.width / 2) / view.s; view.y = wy - (py - r.height / 2) / view.s; }
+  draw();
+}, {passive: false});
+document.getElementById("fit").onclick = () => { fit(); draw(); };
+document.getElementById("grid").onclick = () => { showGrid = !showGrid; draw(); };
+document.getElementById("follow").onchange = e => { follow = e.target.value; draw(); };
+function centerOn(x, y, s) { view.x = x; view.y = y; if (s) view.s = s; follow = ""; document.getElementById("follow").value = ""; draw(); }
+
+function size(e) {
+  if (e.w) return [e.w, e.h];
+  let s = SIZE[e.n] || 1; if (!Array.isArray(s)) s = [s, s];
+  return (e.d === 4 || e.d === 12) ? [s[1], s[0]] : s;  // rotated east/west
+}
+
+function fit() {
+  if (!data) return;
+  let pts = (data.entities || []).map(e => [e.x, e.y]);
+  for (const a of data.agents || []) if (a.position) pts.push([a.position.x, a.position.y]);
+  if (!pts.length) return;
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const x1 = Math.min(...xs) - 4, x2 = Math.max(...xs) + 4, y1 = Math.min(...ys) - 4, y2 = Math.max(...ys) + 4;
+  const r = cv.getBoundingClientRect();
+  view.x = (x1 + x2) / 2; view.y = (y1 + y2) / 2;
+  view.s = Math.max(2, Math.min(40, Math.min(r.width / (x2 - x1), r.height / (y2 - y1))));
+}
+
+// resource + water layer, rebuilt only when the server sends new resource data
+function buildResCanvas() {
+  resCanvas = null;
+  if (!resources || !resources.area) return;
+  const A = resources.area, w = A.x2 - A.x1, h = A.y2 - A.y1;
+  if (w <= 0 || h <= 0 || w * h > 16e6) return;
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const g = c.getContext("2d");
+  g.fillStyle = "#1f4f7a";
+  const wt = resources.water || [];
+  for (let i = 0; i < wt.length; i += 2) g.fillRect(wt[i] - A.x1, wt[i + 1] - A.y1, 1, 1);
+  for (const [name, l] of Object.entries(resources.resources || {})) {
+    g.fillStyle = RES_COLORS[name] || "#556";
+    for (let i = 0; i < l.length; i += 2) g.fillRect(l[i] - A.x1, l[i + 1] - A.y1, 1, 1);
+  }
+  resCanvas = c;
+}
+
+function problemLevel(s) { if (OK.has(s) && !WARN.has(s)) return 0; return WARN.has(s) ? 1 : 2; }
+
+function draw() {
+  const W = cv.width / devicePixelRatio, H = cv.height / devicePixelRatio;
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  ctx.fillStyle = "#14161a"; ctx.fillRect(0, 0, W, H);
+  if (!data) return;
+  if (follow) { const a = (data.agents || []).find(a => a.name === follow); if (a && a.position) { view.x = a.position.x; view.y = a.position.y; } }
+  const s = view.s;
+  // ground: real tiles/ore when the terrain layer is loaded, else the coarse resource layer
+  ctx.imageSmoothingEnabled = false;
+  if (SPR.ready && SPR.drawGround(W, H)) {
+    // drawn
+  } else if (resCanvas) {
+    const A = resources.area, [sx, sy] = toScreen(A.x1, A.y1);
+    ctx.globalAlpha = 0.35; ctx.drawImage(resCanvas, sx, sy, resCanvas.width * s, resCanvas.height * s); ctx.globalAlpha = 1;
+  } else if (resources && resources.patches) {
+    for (const p of resources.patches) {
+      const [a, b] = p.bbox, [x1, y1] = toScreen(a.x, a.y), [x2, y2] = toScreen(b.x, b.y);
+      ctx.fillStyle = RES_COLORS[p.name] || "#556"; ctx.globalAlpha = 0.18; ctx.fillRect(x1, y1, x2 - x1, y2 - y1); ctx.globalAlpha = 1;
+      if (s > 3) { ctx.fillStyle = "#ffffff55"; ctx.font = "11px system-ui"; ctx.fillText(p.name, x1 + 3, y1 + 12); }
+    }
+  }
+  if (showGrid && s >= 6) {
+    ctx.strokeStyle = "#ffffff10"; ctx.lineWidth = 1; ctx.beginPath();
+    const [wx1, wy1] = toWorld(0, 0), [wx2, wy2] = toWorld(W, H);
+    for (let x = Math.floor(wx1); x <= wx2; x++) { const [px] = toScreen(x, 0); ctx.moveTo(px, 0); ctx.lineTo(px, H); }
+    for (let y = Math.floor(wy1); y <= wy2; y++) { const [, py] = toScreen(0, y); ctx.moveTo(0, py); ctx.lineTo(W, py); }
+    ctx.stroke();
+  }
+  // entities: big things first so belts/inserters stay visible on top
+  if (sortedFor !== data.entities) {  // sort once per snapshot, not per frame
+    sortedFor = data.entities;
+    sorted = (data.entities || []).slice().sort((a, b) => { const [aw, ah] = size(a), [bw, bh] = size(b); return bw * bh - aw * ah; });
+  }
+  if (SPR.ready) drawSpriteWorld(W, H);
+  else for (const e of sorted) drawBox(e, W, H);
+  for (const e of sorted) outline(e, W, H);
+  drawAgents();
+}
+function drawBox(e, W, H) {
+  const s = view.s;
+  {
+    const [w, h] = size(e), [px, py] = toScreen(e.x - w / 2, e.y - h / 2);
+    if (px > W || py > H || px + w * s < 0 || py + h * s < 0) return;
+    const cat = category(e), col = CAT_COLOR[cat], pad = Math.min(1, s * 0.06);
+    if (cat === "belt") {
+      ctx.fillStyle = "#3a3220"; ctx.fillRect(px, py, w * s, h * s);
+      arrow(e.x, e.y, e.d, col, 0.38);
+    } else if (cat === "inserter") {
+      ctx.fillStyle = "#2b3442"; ctx.fillRect(px + s * .2, py + s * .2, s * .6, s * .6);
+      arrow(e.x, e.y, ((e.d || 0) + 8) % 16, col, 0.4);  // items move opposite to an inserter's direction
+    } else if (cat === "pole") {
+      ctx.fillStyle = col; const r = Math.max(1.5, s * .18); ctx.fillRect(px + w * s / 2 - r, py + h * s / 2 - r, 2 * r, 2 * r);
+    } else {
+      ctx.fillStyle = col; ctx.globalAlpha = 0.85; ctx.fillRect(px + pad, py + pad, w * s - 2 * pad, h * s - 2 * pad); ctx.globalAlpha = 1;
+      if (cat === "pipe" && e.d !== undefined && /pump|offshore/.test(e.n)) arrow(e.x, e.y, e.d, "#fff8", 0.3);
+      if (s >= 14 && w >= 2) {
+        ctx.fillStyle = "#000a"; ctx.font = `${Math.min(12, s * .45)}px system-ui`; ctx.textAlign = "center";
+        const label = e.r || e.n.replace(/-/g, " ");
+        ctx.fillText(label.length > 14 ? label.slice(0, 13) + "…" : label, px + w * s / 2, py + h * s / 2 + 4, w * s - 4); ctx.textAlign = "left";
+      }
+    }
+  }
+}
+function outline(e, W, H) {
+  const lvl = e.n.startsWith("crash-site") ? 0 : problemLevel(e.s);
+  if (!lvl || (SPR.ready && lvl === 1)) return;  // with sprites only real problems get a frame
+  const s = view.s, [w, h] = size(e), [px, py] = toScreen(e.x - w / 2, e.y - h / 2);
+  if (px > W || py > H || px + w * s < 0 || py + h * s < 0) return;
+  ctx.strokeStyle = lvl === 2 ? "#ff4a4a" : "#ffb02088"; ctx.lineWidth = lvl === 2 ? Math.max(1.5, s * .1) : 1;
+  ctx.strokeRect(px + 1, py + 1, w * s - 2, h * s - 2);
+}
+const BELTISH = new Set(["transport-belt", "underground-belt", "splitter"]);
+function drawSpriteWorld(W, H) {
+  const [wx1, wy1] = toWorld(0, 0), [wx2, wy2] = toWorld(W, H), m = 5;
+  const vis = o => o.x > wx1 - m && o.x < wx2 + m && o.y > wy1 - m && o.y < wy2 + m + 4;
+  const ents = (data.entities || []).filter(vis);
+  const trees = view.s >= 3 ? SPR.trees.filter(vis) : [];
+  const rocks = SPR.rocks.filter(vis);
+  const chars = (data.agents || []).filter(a => a.alive && a.position && vis(a.position));
+  ctx.imageSmoothingEnabled = true;
+  ctx.globalAlpha = 0.6;
+  for (const e of ents) SPR.drawEntity(e, "shadow");
+  for (const r of rocks) SPR.drawRock(r, "shadow");
+  for (const t of trees) SPR.drawTree(t, "shadow");
+  for (const a of chars) SPR.drawCharacter(a, "shadow");
+  ctx.globalAlpha = 1;
+  // belts lie on the ground; everything else is drawn back to front
+  for (const e of ents) if (e.t === "transport-belt") SPR.drawEntity(e, "main");
+  const objs = [];
+  for (const e of ents) if (e.t !== "transport-belt") objs.push([e.y + (e.h || 1) / 2, 0, e]);
+  for (const r of rocks) objs.push([r.y + 0.5, 1, r]);
+  for (const t of trees) objs.push([t.y + 0.3, 2, t]);
+  for (const a of chars) objs.push([a.position.y + 0.2, 3, a]);
+  objs.sort((p, q) => p[0] - q[0]);
+  for (const [, k, o] of objs) {
+    if (k === 0) { if (!SPR.drawEntity(o, "main")) drawBox(o, W, H); }
+    else if (k === 1) SPR.drawRock(o, "main");
+    else if (k === 2) SPR.drawTree(o, "main");
+    else SPR.drawCharacter(o, "main");
+  }
+}
+function drawAgents() {
+  const s = view.s;
+  for (const a of data.agents || []) {
+    if (!a.position) continue;
+    const [px, py] = toScreen(a.position.x, a.position.y);
+    if (a.task && a.task.goal) {
+      const [gx, gy] = toScreen(a.task.goal.x, a.task.goal.y);
+      ctx.setLineDash([4, 4]); ctx.strokeStyle = "#ffffff66"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(gx, gy); ctx.stroke(); ctx.setLineDash([]);
+    }
+    let r = Math.max(5, s * .45);
+    if (SPR.ready && s >= 8 && a.alive) {
+      // the character sprite is drawn with the world; mark it with a ring in the agent's colour
+      r = s * 0.5;
+      ctx.strokeStyle = agentColor(a.name); ctx.lineWidth = Math.max(2, s * 0.06);
+      ctx.beginPath(); ctx.ellipse(px, py, r * 0.8, r * 0.4, 0, 0, 7); ctx.stroke();
+    } else {
+      ctx.fillStyle = a.alive ? agentColor(a.name) : "#666";
+      ctx.beginPath(); ctx.arc(px, py, r, 0, 7); ctx.fill();
+      ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.stroke();
+    }
+    const t = a.name + (a.task ? " · " + a.task.kind : "") + (a.crafting ? " · crafting " + a.crafting.recipe : "");
+    ctx.font = "bold 12px system-ui";
+    const tw = ctx.measureText(t).width;
+    ctx.fillStyle = "#000c"; ctx.fillRect(px + r + 3, py - 9, tw + 8, 18);
+    ctx.fillStyle = "#fff"; ctx.fillText(t, px + r + 7, py + 4);
+  }
+}
+function arrow(x, y, d, col, len) {
+  const [dx, dy] = DIRV(d), s = view.s, [cx, cy] = toScreen(x, y);
+  const ax = cx + dx * s * len, ay = cy + dy * s * len, bx = cx - dx * s * len, by = cy - dy * s * len;
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = Math.max(1, s * .1);
+  ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ax, ay); ctx.stroke();
+  if (s >= 5) {
+    const hx = -dy * s * .2, hy = dx * s * .2;
+    ctx.beginPath(); ctx.moveTo(ax + dx * s * .08, ay + dy * s * .08);
+    ctx.lineTo(ax - dx * s * .22 + hx, ay - dy * s * .22 + hy); ctx.lineTo(ax - dx * s * .22 - hx, ay - dy * s * .22 - hy); ctx.fill();
+  }
+}
+const AGENT_COLORS = ["#ff6b6b", "#4dd2ff", "#ffd84d", "#9dff6b", "#d48bff", "#ff9f40"];
+const agentIdx = {};
+function agentColor(n) { if (!(n in agentIdx)) agentIdx[n] = Object.keys(agentIdx).length; return AGENT_COLORS[agentIdx[n] % AGENT_COLORS.length]; }
+
+function updateTip(px, py, onCanvas) {
+  const tip = document.getElementById("tip");
+  if (!data || !onCanvas || drag) { tip.style.display = "none"; return; }
+  const [wx, wy] = toWorld(px, py);
+  let best = null;
+  for (const e of data.entities || []) {
+    const [w, h] = size(e);
+    if (Math.abs(wx - e.x) <= w / 2 && Math.abs(wy - e.y) <= h / 2 && (!best || w * h < best.area)) best = {e, area: w * h};
+  }
+  for (const a of data.agents || []) if (a.position && Math.hypot(wx - a.position.x, wy - a.position.y) < Math.max(0.6, 6 / view.s)) best = {a};
+  if (!best) { tip.style.display = "none"; return; }
+  let html;
+  if (best.a) { const a = best.a; html = `<b>${esc(a.name)}</b> ${a.task ? esc(a.task.kind + " (" + a.task.state + ")") : "idle"}`; }
+  else { const e = best.e; html = `<b>${esc(e.n)}</b> @${e.x},${e.y}` + (e.s ? ` · <span class="${["ok","warn","bad"][problemLevel(e.s)]}">${esc(e.s)}</span>` : "") + (e.r ? ` · ${esc(e.r)}` : ""); }
+  tip.innerHTML = html; tip.style.display = "block"; tip.style.left = (px + 14) + "px"; tip.style.top = (py + 14) + "px";
+}
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function fmtTime(ticks) { const s = Math.floor(ticks / 60), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return `${h}:${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; }
+
+function sidebar() {
+  const d = data, v = d.viewer || {};
+  document.getElementById("game").innerHTML =
+    `<div class="row"><span>game time <b>${fmtTime(d.tick || 0)}</b></span><span class="${d.paused ? "warn" : "ok"}">${d.paused ? "paused" : "running"}</span></div>` +
+    `<div class="row dim"><span>mode ${esc(d.mode)} · speed ${d.speed ?? "?"}x</span><span>humans: ${esc((d.humans_online || []).join(", ") || "none")}</span></div>`;
+  // agents
+  const sel = document.getElementById("follow");
+  for (const a of d.agents || []) if (![...sel.options].some(o => o.value === a.name)) sel.add(new Option("follow " + a.name, a.name));
+  document.getElementById("agents").innerHTML = (d.agents || []).map(a => {
+    const t = a.task, p = a.position;
+    let task = t ? `${esc(t.kind)} <span class="dim">${esc(t.state)}${t.ticks != null ? " · " + (t.ticks / 60).toFixed(1) + "s" : ""}</span>` : `<span class="dim">idle</span>`;
+    if (t && t.progress) task += ` <span class="dim">${t.progress.mined}/${t.progress.count}</span>`;
+    if (t && t.goal) task += ` <span class="dim">→ ${t.goal.x},${t.goal.y}</span>`;
+    if (t && t.error) task += `<div class="bad">${esc(t.error)}</div>`;
+    const craft = a.crafting ? `<div class="dim">crafting ${esc(a.crafting.recipe)} ×${a.crafting.count}${a.crafting.queue > 1 ? " (+" + (a.crafting.queue - 1) + " more)" : ""}</div>` : "";
+    return `<div class="agent" data-x="${p ? p.x : ""}" data-y="${p ? p.y : ""}"><div class="row"><span class="name" style="color:${agentColor(a.name)}">● ${esc(a.name)}</span>` +
+      `<span class="dim">${p ? p.x.toFixed(0) + ", " + p.y.toFixed(0) : "dead"}${a.health != null ? " · " + a.health.toFixed(0) + "hp" : ""}</span></div>${task}${craft}</div>`;
+  }).join("") || `<span class="dim">no agents</span>`;
+  // research
+  const r = d.research || {};
+  document.getElementById("research").innerHTML = r.current
+    ? `<div class="row"><b>${esc(r.current)}</b><span>${Math.round((r.progress || 0) * 100)}%</span></div><div class="bar"><div style="width:${(r.progress || 0) * 100}%"></div></div>` +
+      (r.queue && r.queue.length > 1 ? `<div class="dim">queue: ${r.queue.slice(1).map(esc).join(", ")}</div>` : "") +
+      (r.researched_count != null ? `<div class="dim">${r.researched_count} technologies researched</div>` : "")
+    : `<span class="dim">nothing researching</span>` + (r.researched_count != null ? `<div class="dim">${r.researched_count} researched</div>` : "");
+  // counts + problems
+  const groups = {}, probs = [];
+  for (const e of d.entities || []) {
+    const g = groups[e.n] || (groups[e.n] = {total: 0, st: {}});
+    g.total++; const st = e.s || "-"; g.st[st] = (g.st[st] || 0) + 1;
+    if (problemLevel(e.s) === 2 && !e.n.startsWith("crash-site")) probs.push(e);
+  }
+  document.getElementById("counts").innerHTML = "<table>" + Object.entries(groups).sort((a, b) => b[1].total - a[1].total).map(([n, g]) =>
+    `<tr><td>${esc(n)}<div class="dim">${Object.entries(g.st).filter(([s]) => s !== "-").map(([s, c]) => `<span class="${["ok","warn","bad"][problemLevel(s)]}">${esc(s)}</span>:${c}`).join(" ")}</div></td><td class="n">${g.total}</td></tr>`
+  ).join("") + "</table>";
+  document.getElementById("problems").innerHTML = probs.length
+    ? probs.slice(0, 40).map(e => `<div class="prob bad" data-x="${e.x}" data-y="${e.y}">${esc(e.n)} @${e.x},${e.y} — ${esc(e.s)}</div>`).join("") + (probs.length > 40 ? `<div class="dim">+${probs.length - 40} more</div>` : "")
+    : `<span class="dim">none</span>`;
+  // chat
+  const chat = document.getElementById("chat");
+  if (d.chat == null) chat.innerHTML = `<span class="dim">chat needs agent-bridge 0.1.7 (server restart)</span>`;
+  else chat.innerHTML = d.chat.length ? d.chat.slice().reverse().map(m => `<div><span class="dim">${fmtTime(m.tick)}</span> <b>${esc(m.from)}</b>: ${esc(m.message)}</div>`).join("") : `<span class="dim">no messages</span>`;
+}
+document.getElementById("side").addEventListener("click", e => {
+  const el = e.target.closest("[data-x]"); if (!el || el.dataset.x === "") return;
+  centerOn(+el.dataset.x, +el.dataset.y, Math.max(view.s, 20));
+});
+
+async function poll() {
+  const st = document.getElementById("status");
+  let d;
+  try { d = await (await fetch("data.json", {cache: "no-store"})).json(); }
+  catch (err) { st.innerHTML = `<span class="bad">viewer server not reachable</span>`; setTimeout(poll, POLL_MS); return; }
+  try {
+    const arr = v => Array.isArray(v) ? v : [];
+    for (const k of ["entities", "agents", "humans_online", "water", "patches"]) if (k in d) d[k] = arr(d[k]);
+    if (d.chat != null) d.chat = arr(d.chat);
+    if (d.research) d.research.queue = arr(d.research.queue);
+    if (d.error) { st.innerHTML = `<span class="bad">${esc(d.error)}</span>`; }
+    else {
+      // keep the heading/motion state the fast stream worked out
+      const old = Object.fromEntries(((data && data.agents) || []).map(a => [a.name, a]));
+      for (const a of d.agents || []) {
+        const o = old[a.name];
+        if (o) for (const k of ["_last", "_dir8", "_movedAt", "_moving"]) a[k] = o[k];
+        if (a._dir8 == null && a.dir != null) a._dir8 = Math.round(a.dir / 2) % 8;
+      }
+      data = d;
+      const key = d.area ? JSON.stringify(d.area) + (d.water || []).length + Object.values(d.resources || {}).reduce((n, l) => n + l.length, 0) : (d.patches ? "p" + d.patches.length : null);
+      if (key !== resKey) { resKey = key; resources = {area: d.area, water: d.water, resources: d.resources, patches: d.patches}; buildResCanvas(); }
+      if (!fitted) { fit(); fitted = true; }
+      const v = d.viewer || {};
+      st.innerHTML = `${(d.entities || []).length} entities · agents ${fastRate}/s · ${v.mode === "fallback" ? '<span class="warn">fallback mode (mod ' + esc(v.mod_version) + ')</span>' : "snapshot"} · poll ${v.polled_ms}ms · ${new Date(v.time * 1000).toLocaleTimeString()}`;
+      applyFast();
+      sidebar(); draw();
+    }
+  } catch (err) { console.error(err); st.innerHTML = `<span class="bad">render error: ${esc(err.message)}</span>`; }
+  setTimeout(poll, POLL_MS);
+}
+// fast agent positions over server-sent events (about every 20 ms while the game runs)
+let lastFast = null, fastCount = 0, fastRate = 0, drawQueued = false;
+setInterval(() => { fastRate = fastCount; fastCount = 0; }, 1000);
+function applyFast() {
+  if (!data || !lastFast || Date.now() / 1000 - lastFast.time > 2) return;
+  data.agents = data.agents || [];
+  for (const [name, f] of Object.entries(lastFast.agents || {})) {
+    let a = data.agents.find(a => a.name === name);
+    if (!a) data.agents.push(a = {name});
+    a.alive = f.alive;
+    if (f.position) {
+      const p = a._last;
+      if (p) {
+        const dx = f.position.x - p.x, dy = f.position.y - p.y;
+        if (dx * dx + dy * dy > 1e-4) {
+          a._dir8 = (Math.round(Math.atan2(dx, -dy) / (Math.PI / 4)) + 8) % 8;  // 0 = north, clockwise
+          a._movedAt = performance.now();
+        }
+      }
+      a._last = f.position; a.position = f.position;
+    }
+    a._moving = a._movedAt && performance.now() - a._movedAt < 150;
+    if (!f.task) a.task = null;
+    else if (!a.task || a.task.kind !== f.task) a.task = {kind: f.task, state: "running"};
+  }
+}
+function connectStream() {
+  const es = new EventSource("events");
+  es.onmessage = ev => {
+    lastFast = JSON.parse(ev.data); fastCount++;
+    applyFast();
+    SPR.moved = true;
+  };
+  es.onerror = () => { es.close(); setTimeout(connectStream, 2000); };
+}
+// render loop: animates while the game runs, otherwise redraws only when something changed
+let lastFrame = performance.now(), lastDraw = 0;
+function frameLoop(now) {
+  const dt = Math.min(0.1, (now - lastFrame) / 1000); lastFrame = now;
+  const running = data && !data.paused;
+  if (running) SPR.animT += dt * (data.speed || 1);
+  // animation is invisible when zoomed far out: redraw at ~10 fps there
+  const due = view.s >= 6 || now - lastDraw > 100;
+  if (SPR.dirty || ((running || SPR.moved) && due)) { SPR.dirty = SPR.moved = false; lastDraw = now; draw(); }
+  requestAnimationFrame(frameLoop);
+}
+resize(); poll(); connectStream(); SPR.load(); requestAnimationFrame(frameLoop);
+</script>
+</body>
+</html>

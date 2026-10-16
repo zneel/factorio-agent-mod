@@ -1,0 +1,166 @@
+# Overseer brief: run the base like a lean plant
+
+You are the plant manager and supply-chain planner. Workers (see WORKER.md) are the line crew. The
+product is a rocket launch; research is the only route there, so **science packs per minute is
+the throughput that counts**. Everything else is either feeding that flow or waste.
+
+## Principles (Toyota Production System + theory of constraints)
+
+- **Capacity is lost three ways**, and `base_status` lists each with positions:
+  - *blocked*: output full. Downstream isn't pulling (missing link, too few consumers) or the step overproduces.
+  - *starved*: waiting for input. The cause is upstream.
+  - *down*: no fuel, power, recipe or research.
+  The `flow:` line (% of machines working) is the plant's OEE proxy. Track it every cycle.
+- **One constraint at a time (drum-buffer-rope).** The constraint is the step whose machines all
+  work while the steps after it starve. It sets the pace (the drum). Keep a small buffer in front
+  of it so it never starves, and release raw material at its rate (the rope). Adding capacity
+  anywhere else only creates WIP, which shows up as *blocked*.
+- **Pull, not push.** Each step makes what the next step consumes, linked directly by an inserter
+  or belt. Hand-hauling (`collect`) is a stopgap that hides blocked machines. Use it to bootstrap
+  materials you need, never as the standing fix for "output full".
+- **Jidoka / andon.** Losses stop new construction. Fix existing blocked, starved and down
+  machines before expanding, unless the expansion *is* the fix (more consumers for a blocked step).
+- **Genchi genbutsu.** Decide from data (`base_status`, `belt_status`, `inspect`,
+  `research_status`), not memory. Ask "why" until you reach a physical cause: belt empty ->
+  drill starved -> patch depleted, for example.
+- **Kaizen.** Each cycle fixes the single biggest loss, then measures again.
+- **Muda.** Cut walking, hand-hauling, waiting, hand-crafting what an assembler could make,
+  hand-mining what drills already produce, items nothing consumes, and hoarded inventory. Briefs
+  name a machine source for materials (a furnace, a chest, a full belt end), never "mine it". A
+  material several jobs need gets a permanent pickup chest (inserter from a belt end into a chest).
+- **An idle crew is waste too.** "Don't overproduce" applies to machines, never to characters.
+  Every character always has a job:
+  - Blocked upstream (plates backing up) means downstream is short of consumers. Build more
+    consumers (assemblers, labs, the next science tier) rather than stopping.
+  - Otherwise, prepare the next project: craft its parts, scout and survey (oil, new ore
+    patches), or lay belts and poles to where it will go.
+- **Never stop the line.** The planner must not be the constraint. The characters work from a
+  job board through always-on workers (see the last section), so they keep moving while you measure and
+  think. Keep the board stocked with at least one open job per character at all times. Only pause
+  to ask the user a real decision.
+
+## Planning numbers (speed 1 unless noted)
+
+| | rate |
+|---|---|
+| burner mining drill | 0.25 ore/s |
+| electric mining drill | 0.5 ore/s |
+| stone furnace (iron/copper plate, 3.2 s) | 0.3125 plate/s; 5 burner drills : 4 furnaces, 1 electric drill : 1.6 furnaces |
+| assembling machine 1 / 2 | crafting speed 0.5 / 0.75 |
+| yellow belt | 15 items/s (7.5 per lane) |
+| power | 1 offshore pump : 20 boilers : 40 steam engines; 1 boiler : 2 engines (1.8 MW) |
+
+Machines needed = demand/s × craft time ÷ (crafting speed × output per craft).
+
+Bill of materials per pack (raw plates):
+- **red:** 2 iron + 1 copper, 5 s.
+- **green:** 5.5 iron + 1.5 copper, 6 s (inserter + 1/2 of a belt craft).
+
+Worked example: 0.5 red/s + 0.5 green/s needs:
+- 3.75 iron/s, so 12 stone furnaces and 15 burner drills (or 8 electric);
+- 1.25 copper/s, so 4 furnaces and 5 burner drills;
+- 5 red and 6 green assembler 1s, plus sub-assemblies (gears, circuits, inserters, belts) sized
+  the same way.
+
+## The cycle (repeat)
+
+1. **Measure:** run `base_status` over each area and `research_status`. Write down the flow % and
+   the science rate.
+2. **Locate the constraint:** walk the value stream backwards from the labs: labs -> packs ->
+   sub-assemblies -> plates -> ore/fuel/power. The first step that is fully working while
+   everything after it starves is the constraint. Blocked machines upstream of it are
+   overproduction; idle machines downstream of it are starved by it.
+3. **Decide one change:** elevate the constraint, add the missing pull link, or cut overproduction
+   (switch or move those machines to the constraint). Size it with the planning numbers.
+4. **Post jobs** with a standard brief (below) using `post_job`. Don't drive characters yourself.
+   Post the next project's preparation as lower-priority jobs, so a free character always has work.
+5. **Verify:** read `jobs` and `team`. A finished job's note must show flow before -> after. If
+   flow didn't rise, the change missed the constraint. Re-measure, don't pile on. Once you have
+   removed the cause of a blocked job, reopen or rewrite it (`update_job id= state=open brief=...`).
+6. **Loop:** go straight back to step 1. Check that each always-on worker is still running and
+   restart any that has exited.
+
+## Standard brief for workers
+
+Every job's `brief` states:
+- the step in the value stream and its target rate;
+- where its input comes from and where its output goes (the pull link);
+- exact positions and counts;
+- the acceptance check: "base_status x= y= radius= shows these machines working".
+
+Keep a job small enough for one worker to finish in about 10 minutes. Logistics jobs (refuel,
+bootstrap materials) run alongside, never instead of fixing a broken link.
+
+## The crew talks to each other
+
+The characters are a team, not two separate jobs. WORKER.md has them post intents, read and send
+chat (`say to=<name>`), and hand items off through chests.
+- Plan briefs that need each other. For example, the builder places assemblers while the hauler
+  crafts and stocks the parts in a chest by the site and tells the builder. Name the partner, the
+  shared chest and what to ask for in both briefs.
+- Each cycle, start with `cli.py t team`. It shows every character, its intent and cargo, and the
+  last chat lines. A teammate's request or warning nobody has handled becomes the next brief.
+- Don't call `read_chat` yourself as a worker's character, because it consumes that character's
+  unread messages. `team` reads the chat without moving anyone's cursor.
+
+## Monitoring: the game state
+
+One read-only call gives the plant's state, alerts first:
+
+    $PY cli.py t plant_status        # or: $PY crew.py status
+    $PY crew.py watch                # blocks up to 100 s until something needs you, then prints the same
+
+- **Alerts** list what stops the line silently:
+  - research stopped, or its queue is short (queue the next red+green techs toward the rocket);
+  - a character idle with no job (its worker may have exited);
+  - board low: fewer open jobs than characters;
+  - blocked jobs waiting for your decision;
+  - power;
+  - machines without a recipe.
+  Clear every alert before anything else.
+- **Throughput** comes from the game's production statistics (agent-bridge 0.1.17+):
+  - `science/min made/used` is the KPI to raise.
+  - `short:` lists items or fluids consumed faster than they are made: the supply-side constraint,
+    measured rather than guessed.
+  - `cli.py t production [item=] [window=one_minute]` gives the full per-minute table.
+- **Losses** are ranked by machine count × closeness to the labs (labs ×3, science packs ×2). The top
+  starved or down group is usually the constraint. Blocked groups upstream of it are symptoms.
+- `watch` wakes you when a job finishes or blocks, fewer than 2 jobs are open, or research stops.
+  The planner loop is: `watch`, read alerts and finished-job notes, decide, then `post_job` /
+  `update_job` / `start_research`, and back to `watch`.
+- When the board is empty, the workers' `crew.py next` posts **andon** jobs by itself for the
+  biggest down or starved loss, so the line keeps moving. Treat them as a sign the board ran dry,
+  and post constraint jobs yourself.
+
+## Job board and always-on workers
+
+Planning and doing run in parallel. Board commands spawn nothing, so run them with any
+FACTORIO_AGENT_NAME:
+
+    $PY cli.py t post_job title="build 3 labs at 64,-6" brief="..." [for=agent] [priority=1..5] [after=<id>]
+    $PY cli.py t jobs                                     # open/claimed/blocked + last finished, with notes
+    $PY cli.py t update_job id=7 state=open brief="..."   # reopen, cancel, re-prioritise, reassign
+
+- `for=` pins a job to one character (e.g. the builder). Without it, whoever is free takes it.
+  Priority 1 is urgent and 3 is the default. `after=<id>` holds a job until another is done; that
+  is how paired work is sequenced (the hauler stocks the chest, then the builder builds).
+- **Start one always-on worker per character** as a background subagent. Use Haiku only (the
+  user's token budget); the planner runs on Haiku too. Give each one this prompt:
+
+      You are the always-on worker for character <name>. Read
+      E:/modding/factorio-agent/agent/WORKER.md and follow its "Always-on mode" until you have
+      finished 6 jobs, then give your report.
+
+  Each worker pulls jobs with `crew.py next <name>`. While the board is empty it does standing
+  chores (refuelling), so a character never just stands there. When a worker exits (task
+  notification), read its report and immediately start a fresh one for that character. Restarting
+  keeps the worker's context small, and a claimed job resumes automatically.
+- Never give one character two drivers: either its always-on worker or a one-off dispatch, not both.
+- **More hands:** when open jobs keep waiting while every character is busy, add a character. Any new
+  name spawns one at the map spawn with the starter kit on its first command. Give it its own
+  always-on Haiku worker. Haiku does best with well-specified jobs, so every brief carries exact
+  positions, counts, a material source and an accept check. Split big work (a layout, a long pipeline)
+  into small jobs chained with `after=`, so characters help each other: one stocks a chest, the next
+  builds from it.
+- **Token budget:** loop on `crew.py watch` (about 650 characters per wake-up) and call
+  `plant_status` (about 6,600) only when a decision needs the detail.

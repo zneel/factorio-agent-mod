@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "factorio": {
+      "command": "E:\\modding\\tools\\python\\cpython-3.12.15-windows-x86_64-none\\python.exe",
+      "args": ["E:\\modding\\factorio-agent\\agent\\mcp_server.py"],
+      "env": { "FACTORIO_AGENT_NAME": "agent" }
+    }
+  }
+}
