@@ -532,7 +532,8 @@ def eval_clause(b, c):
         item, op, n = rest[0], rest[1], float(rest[2])
         v = _dict_of(_dict_of(b.call("stock", item=item).get("items")).get(item)).get("total", 0)
         return _cmp(v, op, n), f"{item} total {v}"
-    ents = _list_of(_dict_of(b.call("probe", x=xy[0], y=xy[1])).get("entities"))
+    ents = [e for e in _list_of(_dict_of(b.call("probe", x=xy[0], y=xy[1])).get("entities"))
+            if e.get("type") != "item-entity"]  # items lying on the ground are never what a check means
     if not ents:
         return False, "nothing there"
     main = next((e for e in ents if e.get("type") not in _NOT_MAIN), ents[0])
