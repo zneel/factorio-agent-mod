@@ -135,7 +135,10 @@ def _andon(b, char):
     return None
 
 
-def next_job(char, wait):
+JOBS_PER_WORKER = 3  # a worker's context grows with every step; after this many jobs it must stop and be replaced
+
+
+def next_job(char, wait, fresh=False):
     b = Bridge(char, autostart=False)
     # a typo in the name would spawn a new character on the first call; refuse unknown names
     known = b.call("agents") or {}
@@ -146,10 +149,28 @@ def next_job(char, wait):
     deadline = time.time() + wait
     notes, open_others = [], 0
     st_name = f"crew-{char}.json"
+    if fresh:  # a new worker starts counting from zero
+        st = _load(st_name)
+        st["claims"] = 0
+        _save(st_name, st)
     while True:
         try:
+            st = _load(st_name)
+            held = False
+            if st.get("claims", 0) >= JOBS_PER_WORKER:
+                # only an unfinished job may still be handed out (it resumes); no new claims
+                held = any(isinstance(j, dict) and j.get("state") == "claimed" and j.get("by") == char
+                           for j in _board(b))
+                if not held:
+                    print(f"STOP: you have done {st['claims']} jobs. Your context is full. Give your final "
+                          "report now and end; a fresh worker continues.")
+                    return
             r = b.call("claim_job")
             if isinstance(r.get("job"), dict):
+                if not r.get("resumed"):
+                    st = _load(st_name)
+                    st["claims"] = st.get("claims", 0) + 1
+                    _save(st_name, st)
                 print(fmt_claim(r))
                 if notes:
                     print("while waiting: " + "; ".join(notes[-4:]))
@@ -362,7 +383,7 @@ def main():
     a = sys.argv[1:]
     wait = float(a[a.index("--wait") + 1]) if "--wait" in a else 100.0
     if len(a) >= 2 and a[0] == "next":
-        next_job(a[1], wait)
+        next_job(a[1], wait, fresh="--fresh" in a)
     elif a and a[0] == "watch":
         watch(wait)
     elif a and a[0] == "status":

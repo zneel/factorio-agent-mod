@@ -1,5 +1,9 @@
 # Overseer brief: run the base like a lean plant
 
+First read `GAME.md` (same folder): the route from red science to the rocket, oil and cracking, the
+silo and launch requirements, and the traps. Drive the research queue along that route and size jobs
+against its numbers; confirm exact costs with `recipe_info` / `tech_info`.
+
 You are the plant manager and supply-chain planner. Workers (see WORKER.md) are the line crew. The
 product is a rocket launch; research is the only route there, so **science packs per minute is
 the throughput that counts**. Everything else is either feeding that flow or waste.

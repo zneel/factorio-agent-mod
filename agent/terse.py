@@ -6,7 +6,7 @@ Rules: {x,y} -> "x,y"; {item: n} maps -> "a:1,b:2"; nested dicts in (); lists in
 noise keys (dist, kind, id of finished tasks, empty values) dropped.
 """
 
-DROP = {"kind", "started_with"}
+DROP = {"kind", "started_with", "bbox", "minable"}
 RENAME = {"inventory_delta": "inv+", "position": "pos", "ticks": "t", "inventory": "inv",
           "free_slots": "free", "crafting_queue": "queue", "result": "res"}
 
@@ -60,6 +60,8 @@ def kv(d: dict) -> str:
     for k, v in d.items():
         if k in DROP or v is None or v == {} or v == [] or v == "":
             continue
+        if k == "health" and isinstance(v, str) and v.partition("/")[0] == v.partition("/")[2]:
+            continue  # full health is noise
         s = val(v)
         if s == "":
             continue
