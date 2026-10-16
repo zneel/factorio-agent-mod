@@ -34,6 +34,13 @@ place_row, pole_line, fluid_ports name= x= y= direction= (exact pipe tiles BEFOR
    a decision beyond the brief. Don't retry blocked jobs; the planner reopens them.
 4. Back to 1.
 
+## Record what you learn
+
+When you find a fact other agents will need (what a belt carries, free 3x3 spots, which machine feeds which,
+a wrong assumption in a brief), save it in one line with positions: `$PY crew.py note "fact"`.
+`$PY crew.py notes` prints the latest. Read them before surveying: don't rediscover known facts.
+The work serves the rocket roadmap (`ROADMAP.md`); `WORKFLOW.md` explains how the crew fits together.
+
 ## Keep your context small (cost)
 
 - Small outputs: view_map radius <= 8, look_around <= 12, base_status <= 15. Never print big lists.
@@ -52,6 +59,15 @@ place_row, pole_line, fluid_ports name= x= y= direction= (exact pipe tiles BEFOR
 - After moving or removing ANY electric pole, run base_status over the area and the far end of that
   pole line; no_power means you cut the chain (small poles reach 7.5 tiles). Fix it before leaving.
 - Keep each wait <= 45 s.
+
+## NO HAND-FEEDING
+
+Never keep a machine or chest running by carrying items to it: not into assemblers, not into feed chests,
+not "just this once". A chest that only workers fill is hand-feeding in disguise. If an input is missing,
+build the automatic feed (an inserter from a belt/chest/neighbour machine, a belt, or a source machine
+next to it). If the brief gives you no route, work one out from `view_map` + `belt_status` (see GAME.md
+"Design basics") or post a design job for the planner. One bootstrap insert to kick a machine is allowed
+only together with a job (posted by you) that builds its real feed, and say so in your note.
 
 ## Lean rules
 
@@ -72,6 +88,14 @@ place_row, pole_line, fluid_ports name= x= y= direction= (exact pipe tiles BEFOR
 - Short of items a teammate carries? `say to=<name> message="need 40 gears at chest 60.5,2.5"`, and
   do the parts of the job you can. No answer after about a minute: take the items from a chest, a
   surplus machine or a belt end, or craft them. Never sit idle waiting.
+- **Delegate to teammates, don't work alone.** You can post jobs yourself:
+  `$PY cli.py t post_job title="..." brief="exact tiles, source, accept check" for=<teammate> priority=2`
+  (omit `for=` for any free hand; `after=<id>` to sequence). Do it when the job needs parts, a feed, a
+  machine built or moved by someone else, or when you finish with extra capacity to hand on. Keep working
+  on your own part meanwhile. The result comes back to you as a chat message. Blocked on something a
+  teammate could do? Post it as their job instead of just finishing blocked.
+- Paired jobs: a brief that says "PARTNER: <name> #<id>" means that teammate works the other half
+  right now. Say to=<partner> your exact tiles before you build and tell them when your half is done.
 - Hand-offs go through a chest near the receiver, announced with `say to=<name>` (item, count, chest).
 - Tell the crew in one line (with positions) when you change something others depend on: a moved
   belt, a blocked line, low power.

@@ -46,6 +46,30 @@ Optional: trains (when ore is far or the bus needs several belts of one plate), 
   processing without cracking and a place for the surplus (solid fuel, lubricant).
 - Long fluid lines can throttle; a pump inline splits the segment.
 
+## Design basics (read before planning any feed)
+
+- **An inserter only moves what its target machine can use.** An assembler's input inserter takes only
+  the ingredients of its recipe from a belt, so one belt carrying iron on one lane and copper on the
+  other (or mixed) can feed gear, circuit and science assemblers directly. "No iron-only belt nearby"
+  is NOT a blocker; "no free tile" is.
+- **Direct insertion beats belts.** Machine A -> inserter -> machine B needs no belt (gear assembler
+  right next to the science assembler). Chain: source belt -> inserter -> maker -> inserter -> user.
+- **A 3x3 machine next to a belt needs a one-tile gap for the inserter.** Inserter tile between belt and
+  machine; its arrow = where items go. A long-handed inserter reaches 2 tiles (it skips one tile).
+  Machines flush against a belt (no gap) can't take from it: move the machine one tile or use the other
+  sides.
+- **Chests are buffers, not sources:** a chest must itself be filled by an inserter from a belt or a
+  machine. Never size a chest by what workers can carry.
+- **Rates:** a basic inserter moves about 0.83 items/s, a fast inserter about 2.3/s; a yellow belt lane
+  7.5/s. A red-science assembler (assembler 2, 5 s recipe, speed 0.75) makes 0.15 packs/s and needs
+  0.15 gears/s + 0.15 copper/s. A gear assembler 1 (speed 0.5, 0.5 s recipe... check recipe_info) easily
+  covers several of them, so one gear maker can sit beside two science assemblers.
+- **Plan each product line as inputs -> source -> route.** For every consumer list: ingredient, rate,
+  where it comes from (belt/machine), the exact inserter tile and direction. Keep the plan next to the
+  job, not in a worker's head.
+- Keep lanes in mind: sideloading a belt onto another puts everything on one lane; never connect a belt
+  into a feed you haven't checked with `belt_status`.
+
 ## Traps that stall runs
 
 - Thinking in colours instead of throughput: measure packs per minute (`production`), not machines.

@@ -500,7 +500,8 @@ tool("post_job", "Put a job on the board for the crew. title = one line; brief =
      obj({"title": {"type": "string"}, "brief": {"type": "string"}, "for": {"type": "string"},
           "priority": {"type": "integer"}, "after": {"type": "integer"}}, ["title"]),
      lambda b, a: fmt_job(b.call("post_job", title=a["title"], brief=a.get("brief"), priority=a.get("priority"),
-                                 after=a.get("after"), **({"for": a["for"]} if a.get("for") else {}))))
+                                 after=a.get("after"), **({"for": a["for"]} if a.get("for") else {}),
+                                 **{"from": b.agent})))  # stamp the poster, so the result is reported back to them
 def _plant_status(b, a):
     import crew  # crew imports this module's formatters; import lazily to avoid a cycle
     return crew.overview(b)

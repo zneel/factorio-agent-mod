@@ -13,6 +13,7 @@ Commands that start a task (move_to, mine, craft, wait) block until the task end
 import json
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bridge import Bridge, BridgeError  # noqa: E402
@@ -54,10 +55,28 @@ def unknown_character(b, argv):
     return True
 
 
+def touch_heartbeat(char):
+    """Every command a worker runs proves it is alive (crew.py offline reads this)."""
+    try:
+        import server
+        path = server.RUNTIME / f"crew-{char}.json"
+        try:
+            st = json.loads(path.read_text())
+        except (OSError, ValueError):
+            st = {}
+        st["seen"] = time.time()
+        path.write_text(json.dumps(st))
+    except OSError:
+        pass
+
+
 def run(b, argv):
     cmd, rest = argv[0], argv[1:]
     if unknown_character(b, argv):
         return
+    tool = rest[0] if cmd == "t" and rest else cmd
+    if tool not in NO_CHARACTER and b.agent not in ("planner", "board"):
+        touch_heartbeat(b.agent)
     if cmd == "t":
         # call an MCP tool exactly as an agent would, with the same terse output
         import mcp_server

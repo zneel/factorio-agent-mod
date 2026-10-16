@@ -1,6 +1,12 @@
 # Overseer brief: run the base like a lean plant
 
-First read `GAME.md` (same folder): the route from red science to the rocket, oil and cracking, the
+THE GOAL IS TO LAUNCH A ROCKET. Read `ROADMAP.md` (phases, gate KPIs, research order) and `WORKFLOW.md`
+(roles, job lifecycle, escalation) first. `python crew.py roadmap` prints the current phase and the gap
+of each gate; every job you post must close a gap of the current phase or unlock the next one.
+`python crew.py notes` holds shared facts about the base. Layout you can't decide from `view_map`:
+`python crew.py design "<title>" "<evidence>"` (the architect answers with concrete jobs).
+
+Then read `GAME.md` (same folder): the route from red science to the rocket, oil and cracking, the
 silo and launch requirements, and the traps. Drive the research queue along that route and size jobs
 against its numbers; confirm exact costs with `recipe_info` / `tech_info`.
 
@@ -135,6 +141,33 @@ One read-only call gives the plant's state, alerts first:
 - When the board is empty, the workers' `crew.py next` posts **andon** jobs by itself for the
   biggest down or starved loss, so the line keeps moving. Treat them as a sign the board ran dry,
   and post constraint jobs yourself.
+
+## Supply chains: plan the feed, never hand-feed
+
+A machine whose inputs are carried by workers is not built yet. Hand-feeding costs worker time and
+stops the moment they leave. For every machine you add:
+1. **Write its supply plan first** (in the job brief): each ingredient, rate (GAME.md "Design basics"),
+   the source (belt lane, neighbour machine, chest that an inserter keeps full) and the exact tiles and
+   directions of every inserter/belt on the route. Verify the tiles with `view_map` first.
+2. **Prefer direct insertion and mixed belts**, which inserters filter for you. If a machine sits flush
+   against a belt, move the machine one tile or use another side; don't conclude "no route".
+3. **Post the machine and its feed as one pair** (builder + feeder) so the line works on completion.
+4. If a feed is missing, the job is to build it, not to carry items. Cancel any job whose brief says
+   "stock", "refill" or "hand-feed" a machine, and replace it with the feed job.
+5. A machine with a feed plan you cannot complete (no free tile): move the machine to a spot beside
+   a source belt rather than carrying items to it.
+
+## Pairs: how the crew collaborates
+
+Characters hand work to each other through the board; you set the pattern.
+- **Paired jobs.** For anything with two halves (a machine and its feed, stocking and building) post BOTH
+  at once, each brief ending with `PARTNER: <name> #<id>` plus the shared chest/belt and tiles. They
+  run in parallel, and each says to=<partner> before building. Use `after=<id>` only when the second half
+  truly can't start before the first is done. Aim for at least half of all jobs to be paired.
+- **Workers delegate.** They post jobs for each other (`post_job ... for=<name>`); the poster is stamped,
+  and the finish note comes back to them as a chat message. Treat their blocked notes as asks: if a
+  teammate's job is what unblocks it, make sure that job exists.
+- Watch `watch` for "no job for X": give that character a helper job on a busy teammate's job first.
 
 ## Job board and always-on workers
 

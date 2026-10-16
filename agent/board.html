@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Crew Board</title>
+<style>
+  :root {
+    --bg: #0b0e13; --panel: #131923; --panel2: #1a2230; --line: #263043;
+    --text: #e8eef7; --muted: #8b98ad; --good: #3ddc84; --warn: #ffb454; --bad: #ff5d6c; --info: #58a6ff;
+    --p1: #ff5d6c; --p2: #ffb454; --p3: #58a6ff; --p4: #7ee787; --p5: #8b98ad;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 1.04vw; }              /* everything scales with the window: 1920px wide = 20px */
+  body {
+    background: var(--bg); color: var(--text); overflow: hidden; height: 100vh; cursor: none;
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    display: grid; grid-template-rows: auto auto 1fr; gap: .7rem; padding: .8rem 1rem;
+  }
+  header {
+    display: grid; grid-template-columns: auto 1fr auto auto; gap: 1.4rem; align-items: center;
+    background: var(--panel); border: 1px solid var(--line); border-radius: .7rem; padding: .6rem 1.1rem;
+  }
+  h1 { font-size: 1.5rem; letter-spacing: .06em; font-weight: 800; white-space: nowrap; }
+  h1 span { color: var(--info); }
+  .research .label { color: var(--muted); font-size: .8rem; letter-spacing: .1em; }
+  .research .name { font-size: 1.25rem; font-weight: 700; }
+  .bar { height: .55rem; background: var(--panel2); border-radius: .3rem; overflow: hidden; margin-top: .3rem; }
+  .bar > i { display: block; height: 100%; background: var(--info); transition: width .8s; }
+  .kpi { text-align: center; min-width: 7rem; }
+  .kpi .val { font-size: 2rem; font-weight: 800; line-height: 1; }
+  .kpi .lab { color: var(--muted); font-size: .75rem; letter-spacing: .1em; margin-top: .15rem; }
+  .live { display: flex; align-items: center; gap: .5rem; color: var(--muted); font-size: .95rem; }
+  .dot { width: .7rem; height: .7rem; border-radius: 50%; background: var(--good); box-shadow: 0 0 .6rem var(--good); }
+  .dot.off { background: var(--bad); box-shadow: 0 0 .6rem var(--bad); }
+  #road { background: var(--panel); border: 1px solid var(--line); border-radius: .7rem; padding: .45rem .9rem;
+          display: grid; grid-template-columns: auto 1fr; gap: .2rem 1.2rem; align-items: center; }
+  #road .goal { font-weight: 800; letter-spacing: .08em; font-size: 1.05rem; white-space: nowrap; }
+  #road .goal b { color: var(--warn); }
+  #road .phases { display: flex; gap: .4rem; flex-wrap: wrap; justify-content: flex-end; }
+  #road .ph { padding: .1rem .6rem; border-radius: 1rem; font-size: .82rem; font-weight: 700; background: var(--panel2); color: var(--muted); }
+  #road .ph.ok { background: var(--good); color: #0b0e13; } #road .ph.cur { background: var(--warn); color: #0b0e13; }
+  #road .gap { grid-column: 1 / -1; font-size: .82rem; color: var(--muted); }
+  .st.off { background: #8b98ad; color: #0b0e13; }
+  main { display: grid; grid-template-columns: 1.75fr 1fr; gap: .8rem; min-height: 0; }
+  section, aside > div {
+    background: var(--panel); border: 1px solid var(--line); border-radius: .7rem; padding: .7rem .8rem; min-height: 0;
+  }
+  .title { color: var(--muted); font-size: .85rem; letter-spacing: .14em; font-weight: 700; margin-bottom: .5rem; }
+  main > section { display: flex; flex-direction: column; overflow: hidden; }
+  #board { flex: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: minmax(0, 1fr);
+           gap: .7rem; min-height: 0; }
+  .col { display: flex; flex-direction: column; gap: .5rem; min-height: 0; overflow: hidden; }
+  .col > div { display: flex; flex-direction: column; gap: .5rem; min-height: 0; overflow: hidden; }
+  .col h2 { font-size: .95rem; letter-spacing: .12em; display: flex; justify-content: space-between; align-items: baseline;
+            padding-bottom: .35rem; border-bottom: 2px solid var(--line); }
+  .col h2 b { font-size: 1.3rem; }
+  .col.open h2 { border-color: var(--info); } .col.claimed h2 { border-color: var(--good); }
+  .col.blocked h2 { border-color: var(--bad); } .col.done h2 { border-color: var(--muted); }
+  .card { background: var(--panel2); border-left: .3rem solid var(--p3); border-radius: .45rem; padding: .45rem .6rem; }
+  .card.p1 { border-color: var(--p1); } .card.p2 { border-color: var(--p2); } .card.p3 { border-color: var(--p3); }
+  .card.p4 { border-color: var(--p4); } .card.p5 { border-color: var(--p5); }
+  .card .top { display: flex; gap: .4rem; align-items: center; margin-bottom: .2rem; font-size: .8rem; color: var(--muted); }
+  .card .id { font-weight: 700; color: var(--text); }
+  .card .t { font-size: 1.02rem; font-weight: 600; line-height: 1.2; overflow: hidden; display: -webkit-box;
+             -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+  .card .note { margin-top: .25rem; font-size: .82rem; color: var(--muted); line-height: 1.25; overflow: hidden;
+                display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+  .chip { padding: .05rem .5rem; border-radius: 1rem; font-weight: 700; font-size: .78rem; color: #0b0e13; }
+  .pri { margin-left: auto; font-weight: 800; }
+  .more { color: var(--muted); font-size: .85rem; text-align: center; }
+  .empty { color: var(--muted); font-size: .9rem; font-style: italic; }
+  aside { display: grid; grid-template-rows: auto auto 1fr; gap: .7rem; min-height: 0; }
+  #crew { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; }
+  .who { background: var(--panel2); border-radius: .5rem; padding: .5rem .65rem; border-top: .25rem solid var(--c, var(--info)); }
+  .who .nm { display: flex; justify-content: space-between; align-items: baseline; font-weight: 800; font-size: 1.1rem;
+             text-transform: uppercase; letter-spacing: .05em; }
+  .who .st { font-size: .8rem; padding: .05rem .5rem; border-radius: 1rem; font-weight: 800; color: #0b0e13; }
+  .st.work { background: var(--good); } .st.idle { background: var(--bad); } .st.move { background: var(--info); }
+  .who .job { margin-top: .25rem; font-size: .92rem; line-height: 1.2; min-height: 2.3em; overflow: hidden;
+              display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .who .meta { margin-top: .2rem; font-size: .78rem; color: var(--muted); }
+  .sci { display: grid; gap: .3rem; }
+  .sci .row { display: grid; grid-template-columns: 4.2rem 1fr 7rem; gap: .5rem; align-items: center; font-size: .9rem; }
+  .sci .nm { font-weight: 700; text-transform: uppercase; font-size: .8rem; letter-spacing: .08em; }
+  .sci .track { height: .7rem; background: var(--panel2); border-radius: .35rem; position: relative; overflow: hidden; }
+  .sci .made { position: absolute; inset: 0 auto 0 0; border-radius: .35rem; opacity: .95; transition: width .8s; }
+  .sci .used { position: absolute; top: 0; bottom: 0; width: .2rem; background: #fff; transition: left .8s; }
+  .sci .num { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+  aside > div:last-child { display: flex; flex-direction: column; overflow: hidden; }
+  #chat { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: .3rem; }
+  .msg { font-size: .88rem; line-height: 1.25; flex: none; overflow: hidden; display: -webkit-box;
+         -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+  .msg b { margin-right: .35rem; }
+  .msg .to { color: var(--muted); }
+  #offline { display: none; position: fixed; inset: 0; background: rgba(11,14,19,.78); z-index: 5;
+             align-items: center; justify-content: center; font-size: 3rem; font-weight: 800; color: var(--bad); letter-spacing: .1em; }
+  body.stale #offline { display: flex; }
+
+  /* ---- layouts: ?layout=side (default, a tall panel next to the game), bar (a strip under it), full.
+     ?bg=clear makes the page transparent so OBS can lay it over a scene. ---- */
+  header h1 { grid-area: h; } header .research { grid-area: r; } header .kpi { grid-area: k; } header .live { grid-area: l; }
+  html.clear body { background: transparent; }
+  html.clear header, html.clear section, html.clear aside > div { background: rgba(19, 25, 35, .84); }
+
+  html.side { font-size: 3.1vw; }                       /* a 520px wide source reads like 16px text */
+  html.side body { padding: .5rem; gap: .5rem; grid-template-rows: auto auto 1fr; }
+  html.side #road { padding: .3rem .6rem; grid-template-columns: 1fr; } html.side #road .goal { font-size: .85rem; }
+  html.side #road .phases { justify-content: flex-start; gap: .25rem; } html.side #road .ph { font-size: .68rem; padding: 0 .4rem; }
+  html.side #road .gap { font-size: .68rem; }
+  html.side header { grid-template-columns: 1fr auto auto; grid-template-areas: "h k l" "r r r"; gap: .3rem .8rem; padding: .45rem .7rem; }
+  html.side h1 { font-size: 1.05rem; }
+  html.side .kpi { min-width: 0; text-align: right; } html.side .kpi .val { font-size: 1.45rem; } html.side .kpi .lab { display: none; }
+  html.side .live { font-size: .8rem; } html.side .live div div:last-child { display: none; }
+  html.side .research .name { font-size: 1rem; } html.side .research .label { display: none; }
+  html.side main { display: flex; flex-direction: column; gap: .5rem; }
+  html.side aside { display: contents; }
+  html.side aside > div:nth-child(1) { order: 1; flex: none; }          /* crew */
+  html.side main > section { order: 2; flex: 1 1 0; }                   /* job board */
+  html.side aside > div:nth-child(2) { order: 3; flex: none; }          /* science */
+  html.side aside > div:nth-child(3) { order: 4; flex: none; max-height: 9.5rem; }   /* chat */
+  html.side section, html.side aside > div { padding: .5rem .6rem; }
+  html.side .title { font-size: .72rem; margin-bottom: .35rem; }
+  html.side #crew { grid-template-columns: 1fr; gap: .35rem; }
+  html.side .who { padding: .3rem .5rem; }
+  html.side .who .nm { font-size: .95rem; } html.side .who .st { font-size: .7rem; }
+  html.side .who .job { font-size: .82rem; min-height: 0; margin-top: .1rem; -webkit-line-clamp: 2; }
+  html.side .who .meta { display: none; }
+  html.side #board { display: flex; flex-direction: column; gap: .4rem; }
+  html.side .col { flex: 0 1 auto; min-height: 3.6rem; } html.side .col > div { flex: 1 1 auto; }
+  html.side .col.claimed { flex-shrink: 0; } html.side .col.open { flex-shrink: .6; } html.side .col.blocked { flex-shrink: 1.4; }
+  html.side .col h2 { font-size: .75rem; padding-bottom: .15rem; } html.side .col h2 b { font-size: 1rem; }
+  html.side .col, html.side .col > div { gap: .3rem; }
+  html.side .card { padding: .25rem .45rem; }
+  html.side .card .top { font-size: .7rem; margin-bottom: 0; } html.side .card .t { font-size: .82rem; -webkit-line-clamp: 2; }
+  html.side .card .note { display: none; }
+  html.side .chip { font-size: .68rem; padding: 0 .4rem; }
+  html.side .sci .row { grid-template-columns: 3.3rem 1fr 5rem; font-size: .75rem; } html.side .sci .nm { font-size: .68rem; }
+  html.side .sci .track { height: .55rem; } html.side .title span { display: none; }
+  html.side .msg { font-size: .72rem; -webkit-line-clamp: 2; } html.side #chat .msg:nth-last-child(n+4) { display: none; }
+  html.side #offline { font-size: 1.4rem; }
+
+  html.bar { font-size: 1.25vw; }                       /* a 1920 x 240 strip: research on top, the crew in a row */
+  html.bar body { padding: .4rem .6rem; gap: .4rem; grid-template-rows: auto auto 1fr; }
+  html.bar #road .gap { display: none; } html.bar #road { padding: .2rem .8rem; }
+  html.bar header { grid-template-columns: auto 1fr auto auto; padding: .3rem .8rem; }
+  html.bar h1 { font-size: 1.1rem; } html.bar .kpi .val { font-size: 1.4rem; } html.bar .kpi .lab { display: none; }
+  html.bar .research .label { display: none; } html.bar .research .name { font-size: 1rem; }
+  html.bar main { grid-template-columns: 1fr; } html.bar main > section { display: none; }
+  html.bar aside { display: block; } html.bar aside > div:nth-child(2), html.bar aside > div:nth-child(3) { display: none; }
+  html.bar aside > div:nth-child(1) { padding: .3rem .5rem; } html.bar .title { display: none; }
+  html.bar #crew { grid-template-columns: repeat(4, 1fr); gap: .5rem; } html.bar .who .meta { display: none; }
+  html.bar .who .job { font-size: .9rem; min-height: 0; }
+</style>
+</head>
+<script>
+  // ?layout=side|bar|full (default side)  ?bg=clear (transparent, for an OBS overlay)
+  (function () {
+    const q = new URLSearchParams(location.search), l = q.get('layout');
+    document.documentElement.classList.add(['bar', 'full'].includes(l) ? l : 'side');
+    if (q.get('bg') === 'clear') document.documentElement.classList.add('clear');
+  })();
+</script>
+<body>
+<header>
+  <h1>AI CREW <span>·</span> FACTORIO</h1>
+  <div class="research">
+    <div class="label">RESEARCH</div>
+    <div class="name" id="rname">…</div>
+    <div class="bar"><i id="rbar" style="width:0"></i></div>
+  </div>
+  <div class="kpi"><div class="val" id="flow">–</div><div class="lab">MACHINES WORKING</div></div>
+  <div class="live"><div class="dot" id="dot"></div><div><div id="clock">–</div><div style="font-size:.75rem">game time</div></div></div>
+</header>
+<div id="road"></div>
+<main>
+  <section>
+    <div class="title">JOB BOARD</div>
+    <div id="board">
+      <div class="col open"><h2>OPEN <b id="n-open">0</b></h2><div id="c-open"></div></div>
+      <div class="col claimed"><h2>IN PROGRESS <b id="n-claimed">0</b></h2><div id="c-claimed"></div></div>
+      <div class="col blocked"><h2>BLOCKED <b id="n-blocked">0</b></h2><div id="c-blocked"></div></div>
+      <div class="col done"><h2>DONE <b id="n-done">0</b></h2><div id="c-done"></div></div>
+    </div>
+  </section>
+  <aside>
+    <div><div class="title">THE CREW</div><div id="crew"></div></div>
+    <div><div class="title">SCIENCE PER MINUTE &nbsp;<span style="font-weight:400;letter-spacing:0">bar = made · white tick = used</span></div><div class="sci" id="sci"></div></div>
+    <div><div class="title">CREW CHAT</div><div id="chat"></div></div>
+  </aside>
+</main>
+<div id="offline">RECONNECTING…</div>
+<script>
+const COLORS = {agent:'#4cc9f0', hauler:'#f7b32b', runner1:'#80ed99', runner2:'#f78fb3', planner:'#c084fc'};
+const PACKS = {red:'#ff5d6c', green:'#3ddc84', blue:'#58a6ff', black:'#8b98ad', purple:'#c084fc', yellow:'#ffd24d', white:'#e8eef7'};
+const LIMIT = {open: 12, claimed: 12, blocked: 12, done: 12};
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function colorOf(name) {
+  if (COLORS[name]) return COLORS[name];
+  let h = 0; for (const ch of String(name)) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  return `hsl(${h} 70% 65%)`;
+}
+const who = n => n ? `<span class="chip" style="background:${colorOf(n)}">${esc(n)}</span>` : '';
+function put(id, html) { const el = document.getElementById(id); if (el._h !== html) { el._h = html; el.innerHTML = html; } }
+function ago(s) { if (s == null) return ''; if (s < 90) return s + 's ago'; if (s < 5400) return Math.round(s / 60) + 'm ago'; return Math.round(s / 3600) + 'h ago'; }
+function clock(tick) { const s = Math.floor((tick || 0) / 60), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+  return `${h}:${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; }
+
+function card(j, state) {
+  const owner = j.by || j.for;
+  const note = state === 'claimed' ? (j.brief || '') : (j.note || '');
+  return `<div class="card p${j.priority}"><div class="top"><span class="id">#${j.id}</span>${who(owner)}
+    ${j.after ? `<span>after #${j.after}</span>` : ''}<span class="pri" style="color:var(--p${j.priority})">P${j.priority}</span></div>
+    <div class="t">${esc(j.title)}</div>${note ? `<div class="note">${esc(note)}</div>` : ''}
+    ${state === 'done' && j.age_s != null ? `<div class="note">${ago(j.age_s)}</div>` : ''}</div>`;
+}
+function fit(id, total) {   // show only whole cards that fit the column; the rest becomes "+N more"
+  const el = document.getElementById(id);
+  el.querySelectorAll('.more').forEach(m => m.remove());
+  const cards = [...el.querySelectorAll('.card')];
+  const more = document.createElement('div'); more.className = 'more';
+  const mark = () => { more.textContent = `+${total - cards.length} more`; if (!more.isConnected) el.appendChild(more); };
+  if (total > cards.length) mark();
+  while (cards.length > 1 && el.scrollHeight > el.clientHeight + 2) { cards.pop().remove(); mark(); }
+}
+function column(state, list) {
+  document.getElementById('n-' + state).textContent = list.length;
+  const shown = list.slice(0, LIMIT[state]).map(j => card(j, state)).join('');
+  put('c-' + state, shown || '<div class="empty">nothing here</div>');
+  fit('c-' + state, list.length);
+}
+function roadStrip(r) {
+  if (!r || !r.phase) { put('road', '<div class="goal">GOAL: <b>LAUNCH A ROCKET</b></div>'); return; }
+  const cur = (r.gates || []).findIndex(g => !g.ok);
+  const phases = (r.gates || []).map((g, i) => `<span class="ph ${g.ok ? 'ok' : i === cur ? 'cur' : ''}">${esc(g.name.split(' ')[0])} ${esc(g.name.split(' ').slice(1).join(' '))}${g.ok ? ' ✓' : ''}</span>`).join('')
+    + `<span class="ph ${r.silo_done ? 'ok' : ''}">P5 silo</span><span class="ph">P6 parts</span><span class="ph">P7 launch</span>`;
+  const packs = Object.entries(r.packs || {}).map(([k, v]) => `${k} ${v}`).join(' · ');
+  const gap = cur >= 0 && r.gates[cur].gap ? `now: ${esc(r.gates[cur].name)} — ${esc(r.gates[cur].gap)}` : '';
+  put('road', `<div class="goal">GOAL: <b>LAUNCH A ROCKET</b> · ${r.techs_left} techs to the silo</div><div class="phases">${phases}</div>`
+    + `<div class="gap">${gap}${gap && packs ? ' &nbsp;|&nbsp; ' : ''}${packs ? 'packs still needed: ' + esc(packs) : ''}</div>`);
+}
+function crewCard(c) {
+  let cls = 'idle', label = 'IDLE', job = '<span class="empty">waiting for a job</span>';
+  if (c.dead) { label = 'DOWN'; }
+  else if (c.job) { cls = 'work'; label = 'ON JOB'; job = `<b>#${c.job.id}</b> ${esc(c.job.title)}`; }
+  else if (c.task) { cls = 'move'; label = c.task.toUpperCase(); job = esc(c.intent || ''); }
+  else if (c.idle_s != null && c.idle_s < 20) { cls = 'move'; label = 'ACTING'; job = esc(c.intent || ''); }
+  if (c.offline && !c.dead) { cls = 'off'; label = 'WORKER OFFLINE'; }
+  const cargo = Object.entries(c.carries || {}).slice(0, 3).map(([k, v]) => `${esc(k.replace(/-/g, ' '))} ${v}`).join(' · ');
+  const pos = c.pos ? `${Math.round(c.pos.x)}, ${Math.round(c.pos.y)}` : '';
+  return `<div class="who" style="--c:${colorOf(c.name)}"><div class="nm"><span>${esc(c.name)}</span><span class="st ${cls}">${label}</span></div>
+    <div class="job">${job}</div><div class="meta">${pos}${cargo ? ' · ' + cargo : ''}</div></div>`;
+}
+function science(sci) {
+  const order = ['red', 'green', 'blue', 'purple', 'yellow'];
+  const vals = order.filter(k => sci[k]);
+  const max = Math.max(10, ...vals.map(k => Math.max(sci[k].made || 0, sci[k].used || 0))) * 1.1;
+  put('sci', vals.map(k => { const v = sci[k];
+    return `<div class="row"><div class="nm" style="color:${PACKS[k]}">${k}</div><div class="track">
+      <div class="made" style="width:${100 * (v.made || 0) / max}%;background:${PACKS[k]}"></div>
+      <div class="used" style="left:${Math.min(99.5, 100 * (v.used || 0) / max)}%"></div></div>
+      <div class="num">${(v.made || 0).toFixed(1)} / ${(v.used || 0).toFixed(1)}</div></div>`; }).join('') || '<div class="empty">no science yet</div>');
+}
+function render(s) {
+  document.body.classList.toggle('stale', !!s.stale && !s.crew);
+  document.getElementById('dot').classList.toggle('off', !!s.stale);
+  if (!s.crew) return;
+  document.getElementById('clock').textContent = clock(s.tick);
+  const r = s.research || {};
+  document.getElementById('rname').textContent = r.current ? r.current.replace(/-/g, ' ') + ` · ${Math.round(100 * (r.progress || 0))}%` : 'none — labs idle';
+  document.getElementById('rbar').style.width = Math.round(100 * (r.progress || 0)) + '%';
+  const f = s.flow;
+  const fe = document.getElementById('flow');
+  if (f) { fe.textContent = f.pct + '%'; fe.style.color = f.pct >= 75 ? 'var(--good)' : f.pct >= 50 ? 'var(--warn)' : 'var(--bad)'; }
+  roadStrip(s.road);
+  for (const st of ['open', 'claimed', 'blocked', 'done']) column(st, (s.jobs || {})[st] || []);
+  put('crew', s.crew.map(crewCard).join(''));
+  science(s.science || {});
+  put('chat', (s.chat || []).slice(-7).map(m =>
+    `<div class="msg"><b style="color:${colorOf(m.from)}">${esc(m.from)}</b>${m.to ? `<span class="to">→ ${esc(m.to)}</span> ` : ''}${esc(m.message)}</div>`).join('')
+    || '<div class="empty">quiet</div>');
+}
+async function tick() {
+  try {
+    const r = await fetch('/api/state', {cache: 'no-store'});
+    render(await r.json());
+  } catch (e) { document.body.classList.add('stale'); document.getElementById('dot').classList.add('off'); }
+}
+tick(); setInterval(tick, 2000);
+</script>
+</body>
+</html>
