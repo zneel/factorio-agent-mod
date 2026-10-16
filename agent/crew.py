@@ -103,10 +103,12 @@ def _restock(b):
     return None
 
 
-def _andon(b):
-    """Board completely empty: post a job for the biggest loss not posted recently."""
+def _andon(b, char):
+    """Nothing on the board this character may take: post a job for the biggest loss not posted
+    recently. (Open jobs pinned to someone else don't count; they can't feed this character.)"""
     jobs = b.call("jobs", recent=0)["jobs"]
-    if any(isinstance(j, dict) and j.get("state") == "open" for j in (jobs if isinstance(jobs, list) else [])):
+    jobs = jobs if isinstance(jobs, list) else []
+    if any(j.get("state") == "open" and j.get("for") in (None, char) for j in jobs if isinstance(j, dict)):
         return None
     st = _load("crew-andon.json")
     now = time.time()
@@ -154,7 +156,7 @@ def next_job(char, wait):
                 return
             open_others = r.get("open_for_others", 0)
             st = _load(st_name)
-            for chore in (lambda: _restock(b), lambda: _refuel(b, char, st), lambda: _andon(b)):
+            for chore in (lambda: _restock(b), lambda: _refuel(b, char, st), lambda: _andon(b, char)):
                 note = chore()
                 if note:
                     notes.append(note)
@@ -310,29 +312,46 @@ def status(b=None):
     print(overview(b))
 
 
+def _needs(b, jobs):
+    """Things only the planner can fix: characters with nothing they may take, a short research queue."""
+    team = b.call("team", chat=0)
+    members = team.get("members") if isinstance(team.get("members"), dict) else {}
+    held = {j.get("by") for j in jobs if j["state"] == "claimed"}
+    starving = [n for n in members if n not in held
+                and not any(j["state"] == "open" and j.get("for") in (None, n) for j in jobs)]
+    r = b.call("snapshot", chat=0).get("research") or {}  # read-only; research_status would need a character
+    queue = r.get("queue") if isinstance(r.get("queue"), list) else []
+    out = []
+    if starving:
+        out.append("no job for " + ",".join(sorted(starving)))
+    if not r.get("current"):
+        out.append("research stopped")
+    elif len(queue) < 2:
+        out.append("research queue short")
+    return out
+
+
 def watch(wait):
     b = Bridge("planner", autostart=False)
     first = _board(b)
     start = {j["id"]: j["state"] for j in first}
-    # wake on "board low" only when it gets low during this watch, so a planner that has nothing
-    # sensible to post doesn't spin (and spend tokens) on an already-low board
-    low_at_start = sum(1 for j in first if j["state"] == "open") < 2
+    st = _load("crew-watch.json")
     deadline = time.time() + wait
     why = "timeout"
     changed = []
     while time.time() < deadline:
         jobs = _board(b)
         changed = [j for j in jobs if j["state"] in ("done", "blocked") and start.get(j["id"]) != j["state"]]
-        open_n = sum(1 for j in jobs if j["state"] == "open")
         if changed:
             why = "finished: " + ", ".join(f"#{j['id']} {j['state']}" for j in changed)
             break
-        if open_n < 2 and not low_at_start:
-            why = f"only {open_n} open job(s)"
-            break
-        r = b.call("snapshot", chat=0).get("research") or {}  # read-only; research_status would need a character
-        if not r.get("current"):
-            why = "research stopped"
+        needs = _needs(b, jobs)
+        # wake at once for something new; the same unchanged need re-wakes at most once a minute,
+        # so a planner that can't act on it doesn't spin and spend tokens
+        if needs and (needs != st.get("needs") or time.time() - st.get("t", 0) > 60):
+            st = {"needs": needs, "t": time.time()}
+            _save("crew-watch.json", st)
+            why = "; ".join(needs)
             break
         time.sleep(5)
     print(f"[{why}]")
