@@ -248,8 +248,9 @@ function crewCard(c) {
   if (c.offline && !c.dead) { cls = 'off'; label = 'WORKER OFFLINE'; }
   const cargo = Object.entries(c.carries || {}).slice(0, 3).map(([k, v]) => `${esc(k.replace(/-/g, ' '))} ${v}`).join(' · ');
   const pos = c.pos ? `${Math.round(c.pos.x)}, ${Math.round(c.pos.y)}` : '';
+  const sc = c.score && c.score.jobs ? ` · ✔ ${c.score.verified}/${c.score.jobs} verified` : '';
   return `<div class="who" style="--c:${colorOf(c.name)}"><div class="nm"><span>${esc(c.name)}</span><span class="st ${cls}">${label}</span></div>
-    <div class="job">${job}</div><div class="meta">${pos}${cargo ? ' · ' + cargo : ''}</div></div>`;
+    <div class="job">${job}</div><div class="meta">${pos}${sc}${cargo ? ' · ' + cargo : ''}</div></div>`;
 }
 function science(sci) {
   const order = ['red', 'green', 'blue', 'purple', 'yellow'];

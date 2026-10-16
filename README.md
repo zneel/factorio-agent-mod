@@ -97,10 +97,15 @@ for the planner:
 - One long-running worker per character loops on `python agent/crew.py next <character>`. This blocks
   until it claims a job (own jobs first, then by priority and age). While the board is empty, the
   character does standing chores such as refuelling.
-- The worker does the job and closes it with `finish_job` (done, or blocked plus a note). The result
-  goes to chat.
+- Every job carries machine-checkable `ACCEPT:` checks (`working X,Y`, `has X,Y ITEM >= N`, `belt X,Y ITEM`,
+  `count ITEM >= N`, ...; see agent/STEERING.md). `post_job` refuses a job without them and refuses `place`
+  tiles that `can_place` reports blocked.
+- The worker does the job and closes it with `finish_job` (done, or blocked plus a note). A "done" whose
+  checks fail comes back NOT DONE with the measured values; a second failure closes it blocked. Each
+  outcome goes to `runtime/outcomes.jsonl`; `crew.py scorecard` shows the verified share per worker.
+  The result goes to chat.
 - `jobs` shows the board. An interrupted job resumes for the next worker on that character.
-- See OVERSEER.md and WORKER.md ("Always-on mode"). Needs agent-bridge 0.1.15.
+- See OVERSEER.md and WORKER.md ("Always-on mode"). Needs agent-bridge 0.1.19 (`probe`, `can_place`).
 
 **Lean operation.** The prompts run the base like a Toyota line with a theory-of-constraints planner.
 [agent/OVERSEER.md](agent/OVERSEER.md) is the overseer's cycle: measure, find the constraint, make one change, verify.
@@ -172,8 +177,8 @@ agent/mcp_server.py MCP stdio server and tool definitions; INSTRUCTIONS holds th
 agent/macros.py     batch-style composite actions (collect, refuel, base_status)
 agent/terse.py      token-lean reply rendering
 agent/cli.py        manual console
-agent/crew.py       always-on loop helpers: `next <char>` (claim a job; kanban crafting, refuel and andon jobs
-                    while waiting), `watch` / `status` (planner's game state with alerts)
+agent/crew.py       always-on loop helpers: `next <char>` (claim a job; kanban crafting and refuel while
+                    waiting), `check <id>`, `scorecard`, `audit`, `watch` / `status` (planner's game state with alerts)
 agent/OVERSEER.md   planner's operating system (lean cycle, job board); WORKER.md is the crew's brief
 agent/selftest.py   end-to-end test through MCP
 runtime/            generated: config, mods, saves, logs, rcon.json (random RCON password)

@@ -494,14 +494,44 @@ def fmt_claim(r):
     return f"no job for you ({n} open for others)"
 
 
+def _post_job(b, a):
+    import crew  # lazy: crew imports this module
+    brief = a.get("brief") or ""
+    if a.get("accept"):
+        brief = brief.rstrip() + "\nACCEPT: " + a["accept"]
+    err = crew.vet_job(b, brief, a.get("place"))
+    if err:
+        return "not posted: " + err
+    return fmt_job(b.call("post_job", title=a["title"], brief=brief, priority=a.get("priority"),
+                          after=a.get("after"), **({"for": a["for"]} if a.get("for") else {}),
+                          **{"from": b.agent}))  # stamp the poster, so the result is reported back to them
+
+
+def _finish_job(b, a):
+    import crew
+    return crew.finish_checked(b, a["id"], a.get("state") or "done", a.get("note"))
+
+
 tool("post_job", "Put a job on the board for the crew. title = one line; brief = the full worker brief "
-     "(positions, counts, pull link, acceptance check). for = one character (default anyone), priority "
-     "1 urgent .. 5 low (default 3), after = id of a job that must be done first.",
-     obj({"title": {"type": "string"}, "brief": {"type": "string"}, "for": {"type": "string"},
+     "(positions, counts, source of materials). accept = machine-checkable checks, ';'-separated, required: "
+     "working X,Y | status X,Y S | entity X,Y NAME | recipe X,Y R | has X,Y ITEM >= N | belt X,Y ITEM | "
+     "drop X,Y DX,DY | count ITEM >= N (or end the brief with 'ACCEPT: ...'). place = optional list of "
+     "{item,x,y,direction} the job will build; each is checked with can_place and the job is refused if a "
+     "tile is blocked. for = one character (default anyone), priority 1 urgent .. 5 low (default 3), "
+     "after = id of a job that must be done first.",
+     obj({"title": {"type": "string"}, "brief": {"type": "string"}, "accept": {"type": "string"},
+          "place": {"type": "array", "items": {"type": "object"}}, "for": {"type": "string"},
           "priority": {"type": "integer"}, "after": {"type": "integer"}}, ["title"]),
-     lambda b, a: fmt_job(b.call("post_job", title=a["title"], brief=a.get("brief"), priority=a.get("priority"),
-                                 after=a.get("after"), **({"for": a["for"]} if a.get("for") else {}),
-                                 **{"from": b.agent})))  # stamp the poster, so the result is reported back to them
+     _post_job)
+tool("can_place", "Can ITEM be built at x,y facing direction? Returns ok, or the blockers on those tiles "
+     "(and whether an in-place upgrade is possible). Read-only; spawns no character.",
+     obj({"item": {"type": "string"}, "x": {"type": "number"}, "y": {"type": "number"},
+          "direction": {"type": "string"}}, ["item", "x", "y"]),
+     lambda b, a: b.call("can_place", item=a["item"], x=a["x"], y=a["y"], direction=a.get("direction")))
+tool("probe", "Everything on one tile: name, status, direction, recipe, inserter pickup/drop, items in all "
+     "inventories and belt lanes. Read-only; spawns no character.",
+     obj({"x": {"type": "number"}, "y": {"type": "number"}}, ["x", "y"]),
+     lambda b, a: b.call("probe", x=a["x"], y=a["y"]))
 def _plant_status(b, a):
     import crew  # crew imports this module's formatters; import lazily to avoid a cycle
     return crew.overview(b)
@@ -539,10 +569,11 @@ tool("claim_job", "Take the next job for your character (yours first, then by pr
      "already hold one, it is returned again so an interrupted job resumes.",
      obj(), lambda b, a: fmt_claim(b.call("claim_job")))
 tool("finish_job", "Close the job you hold: state=done, or blocked with a note saying what is missing. "
-     "Posts the result to chat.",
+     "state=done runs the job's ACCEPT checks first; if one fails the job is not closed and you get the "
+     "measured values: fix and finish again, or finish blocked. Posts the result to chat.",
      obj({"id": {"type": "integer"}, "state": {"type": "string", "enum": ["done", "blocked"], "default": "done"},
           "note": {"type": "string"}}, ["id"]),
-     lambda b, a: fmt_job(b.call("finish_job", id=a["id"], state=a.get("state"), note=a.get("note"))))
+     _finish_job)
 tool("update_job", "Planner edit of a job: reopen (state=open), cancel (state=cancelled), or change "
      "priority, brief, title, owner (for=name or any).",
      obj({"id": {"type": "integer"}, "state": {"type": "string",

@@ -1512,6 +1512,64 @@ CMD.capacity = function(a)
   return { recipes = rows }
 end
 
+-- Machine-checkable job acceptance (read-only): what stands on a tile, its state and contents.
+CMD.probe = function(a)
+  local surface = audit_surface(a)
+  local p = parse_pos(a)
+  local out = {}
+  for _, e in pairs(surface.find_entities_filtered { area = { { p.x - 0.4, p.y - 0.4 }, { p.x + 0.4, p.y + 0.4 } } }) do
+    if e.valid and e.type ~= "character" and e.type ~= "resource" and e.type ~= "corpse" then
+      local v = { name = e.name, type = e.type, pos = pos_of(e.position) }
+      local ok, st = pcall(function() return e.status end)
+      if ok and st then v.status = STATUS_NAMES[st] end
+      if e.supports_direction then v.dir = DIR_NAMES[e.direction] end
+      if e.type == "assembling-machine" or e.type == "furnace" then
+        local r = e.get_recipe()
+        v.recipe = r and r.name or nil
+      end
+      if e.type == "inserter" then v.pickup = pos_of(e.pickup_position); v.drop = pos_of(e.drop_position) end
+      local items = {}
+      for i = 1, (e.get_max_inventory_index() or 0) do
+        local inv = e.get_inventory(i)
+        if inv and inv.valid then
+          for _, it in pairs(inv.get_contents()) do items[it.name] = (items[it.name] or 0) + it.count end
+        end
+      end
+      if IS_BELT[e.type] then
+        for i = 1, e.get_max_transport_line_index() do
+          for _, it in pairs(e.get_transport_line(i).get_contents()) do items[it.name] = (items[it.name] or 0) + it.count end
+        end
+      end
+      v.items = items
+      out[#out + 1] = v
+    end
+  end
+  return { entities = out }
+end
+
+-- Would this item fit here? If not, what is in the way (and could it upgrade what is there)?
+CMD.can_place = function(a)
+  local surface, force = audit_surface(a), game.forces.player
+  local item = prototypes.item[a.item or ""]
+  local name = item and item.place_result and item.place_result.name or a.name
+  if not (name and prototypes.entity[name]) then fail("unknown item or entity '%s'", tostring(a.item or a.name)) end
+  local p, dir = parse_pos(a), parse_dir(a.direction)
+  local params = { name = name, position = p, direction = dir, force = force, build_check_type = defines.build_check_type.manual }
+  local ok = surface.can_place_entity(params)
+  local res = { ok = ok, entity = name }
+  if not ok then
+    local box = prototypes.entity[name].collision_box
+    local blockers = {}
+    for _, e in pairs(surface.find_entities_filtered {
+      area = { { p.x + box.left_top.x, p.y + box.left_top.y }, { p.x + box.right_bottom.x, p.y + box.right_bottom.y } } }) do
+      if e.type ~= "resource" and e.type ~= "corpse" then blockers[#blockers + 1] = e.name .. "@" .. r2(e.position.x) .. "," .. r2(e.position.y) end
+    end
+    res.blockers = blockers
+    if surface.can_fast_replace { name = name, position = p, direction = dir, force = force } then res.upgrade_possible = true end
+  end
+  return res
+end
+
 CMD.set_intent = function(a, agent)
   local t = a.text and tostring(a.text) or nil
   if t == "" then t = nil end
@@ -2332,7 +2390,7 @@ end
 -- dispatch
 
 local NO_AGENT = { ping = true, agents = true, snapshot = true, terrain = true, set_mode = true, set_speed = true,
-  belt_status = true, team = true, post_job = true, update_job = true, jobs = true, production = true, stock = true, ore = true, power = true, capacity = true }
+  belt_status = true, team = true, post_job = true, update_job = true, jobs = true, production = true, stock = true, ore = true, power = true, capacity = true, probe = true, can_place = true }
 
 
 local function dispatch(req)

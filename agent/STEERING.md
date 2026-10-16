@@ -18,9 +18,9 @@
 |---|---|---|---|
 | 1 | **See** | `crew.py audit`: stock and where it sits, ore rate and hours left, power load, every recipe's capacity vs output with BOTTLENECK / IDLE flags. `crew.py where <item>` names the chests. | **done** (agent-bridge 0.1.18) |
 | 2 | **Talk** | `crew.py order <char> "..."`: printed on top of every command that worker runs until it acks (`crew.py ack`). Redirects a worker mid-job. `crew.py orders` shows open/acked orders. | **done** |
-| 3 | **Specify** | Machine-checkable jobs: the brief carries `ACCEPT:` clauses (`status x,y = working`, `chest x,y has item >= n`, `belt x,y carries item`), checked when the job is posted (tiles placeable, materials exist) and again at `finish_job`. A job can't close "done" while its checks fail; it flips to blocked with the measured values. | next |
-| 4 | **Decide where the skill is** | Workers only build. Surveys are done by the planner with read-only tools (audit, view_map, inspect, belt_status). Auto-andon jobs stop. Layout questions go to the architect's design queue and come back as exact jobs in batches. | next |
-| 5 | **Measure the crew** | `crew.py scorecard`: per worker and per job type, the share of jobs that changed the factory (production or capacity moved), blocked, or no-op; time per job. Target: 70%+ of jobs change the factory. Shown on the stream board. | next |
+| 3 | **Specify** | Machine-checkable jobs: the brief carries `ACCEPT:` clauses (`status x,y = working`, `chest x,y has item >= n`, `belt x,y carries item`), checked when the job is posted (grammar, `place` tiles via can_place) and again at `finish_job`. A failing "done" returns NOT DONE with the measured values; the second one closes it blocked. `crew.py check <id>` runs them any time. | **done** (0.1.19) |
+| 4 | **Decide where the skill is** | Workers only build. Surveys are done by the planner with read-only tools (audit, view_map, inspect, belt_status). Auto-andon jobs stopped. Layout questions go to the architect's design queue and come back as exact jobs in batches. | **done** |
+| 5 | **Measure the crew** | `crew.py scorecard`: per worker and per job type, the share of jobs that changed the factory (production or capacity moved), blocked, or no-op; time per job. Target: 70%+ of jobs verified. Logged to `runtime/outcomes.jsonl`; shown per worker on the stream board. | **done** |
 
 ## Overseer routine (every wake-up)
 
@@ -30,9 +30,17 @@
 4. `crew.py orders` / the board: redirect a worker with `crew.py order` when it works on something stale.
 5. `crew.py roadmap`: is the phase gate moving? If not, change the plan, not the workers.
 
-## Order of work for levers 3-5
+## ACCEPT grammar (lever 3)
 
-1. `can_place` bridge command (is this item placeable at x,y,dir?) and the ACCEPT evaluator in crew.py;
-   `finish_job` wrapper that runs the checks.
-2. Turn off auto-andon jobs; the planner's prompt: no surveys for workers.
-3. Outcome log: each finished job records before/after audit numbers for its area; `crew.py scorecard`.
+`ACCEPT: <check>; <check>` at the end of the brief, or `accept=` on post_job. Positions are entity centres.
+
+    working X,Y                 machine reports working
+    status X,Y S                exact status (full_output, no_input_fluid, ...)
+    entity X,Y NAME             that entity is on the tile
+    recipe X,Y R                assembler runs that recipe
+    has X,Y ITEM >= N           items inside the entity (chest, machine, belt), ops >= <= > < ==
+    belt X,Y ITEM               the belt there carries ITEM now
+    drop X,Y DX,DY              the inserter at X,Y drops at DX,DY
+    count ITEM >= N             factory-wide stock
+
+Check what the factory shows, not what the worker did: `working` on the consumer beats `entity` on the inserter.

@@ -72,6 +72,7 @@ class Poller:
             self.road, self.road_at = self.collect_road(), time.time()
         by_job = {j.get("by"): j for j in jobs if j.get("state") == "claimed"}
         crew_list = []
+        score = crew.scorecard_data()
         for name, m in sorted(members.items()):
             m = _dict(m)
             job = by_job.get(name)
@@ -80,6 +81,7 @@ class Poller:
                 "name": name, "pos": m.get("pos"), "dead": bool(m.get("dead")), "task": m.get("task"),
                 "idle_s": m.get("idle_s"), "intent": m.get("intent"),
                 "offline": age > (600 if job else 240),
+                "score": {k: score[name][k] for k in ("jobs", "verified")} if name in score else None,
                 "carries": _dict(m.get("carries")), "job": {"id": job["id"], "title": job["title"]} if job else None,
             })
         groups = {"open": [], "claimed": [], "blocked": [], "done": []}

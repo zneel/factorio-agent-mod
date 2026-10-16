@@ -15,7 +15,7 @@ Values are JSON when they parse (quote lists/objects). Replies are terse: positi
 `name:n`, `inv+=` your inventory change. Chain known steps with `batch`:
 `$PY cli.py t batch steps='[{"tool":"craft","args":{"recipe":"pipe","count":5}},{"tool":"place","args":{"item":"pipe","x":1.5,"y":2.5}}]'`
 
-Tools: get_state, look_around, view_map, inspect x= y= (belts: lane fill; splitters/inserters: settings),
+Tools: get_state, probe x= y= (everything on one tile), can_place item= x= y= direction=, look_around, view_map, inspect x= y= (belts: lane fill; splitters/inserters: settings),
 belt_status x= y=, find_entities name=, move_to, mine, craft recipe= count=, place item= x= y= direction=,
 insert_items / take_items x= y= item= count=, set_recipe, rotate, upgrade item= x= y= (better tier in
 place), configure x= y= (splitter/inserter filters), collect, refuel x= y= radius= amount=, base_status
@@ -32,6 +32,9 @@ place_row, pole_line, fluid_ports name= x= y= direction= (exact pipe tiles BEFOR
 3. `cli.py t finish_job id=<id> note="<one line: what works now, flow before -> after>"`. Use
    `state=blocked note="<what is missing, where>"` only if a placement truly fails or the job needs
    a decision beyond the brief. Don't retry blocked jobs; the planner reopens them.
+   finish_job runs the job's ACCEPT checks. "NOT DONE: ... -> measured" means the factory doesn't show
+   the result yet: fix what the measured value points at and finish again. A second failing finish
+   closes the job blocked with the values, so only finish when `probe x= y=` shows it works.
 4. Back to 1.
 
 ## Orders and materials
@@ -96,7 +99,7 @@ only together with a job (posted by you) that builds its real feed, and say so i
   do the parts of the job you can. No answer after about a minute: take the items from a chest, a
   surplus machine or a belt end, or craft them. Never sit idle waiting.
 - **Delegate to teammates, don't work alone.** You can post jobs yourself:
-  `$PY cli.py t post_job title="..." brief="exact tiles, source, accept check" for=<teammate> priority=2`
+  `$PY cli.py t post_job title="..." brief="exact tiles, source" accept="working 30.5,-3.5" for=<teammate> priority=2`
   (omit `for=` for any free hand; `after=<id>` to sequence). Do it when the job needs parts, a feed, a
   machine built or moved by someone else, or when you finish with extra capacity to hand on. Keep working
   on your own part meanwhile. The result comes back to you as a chat message. Blocked on something a

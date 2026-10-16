@@ -235,7 +235,8 @@ def next_job(char, wait, fresh=False):
                 return
             open_others = r.get("open_for_others", 0)
             st = _load(st_name)
-            for chore in (lambda: _restock(b), lambda: _refuel(b, char, st), lambda: _andon(b, char)):
+            # workers only build: no auto-andon survey jobs (steering lever 4); the planner reads the audit
+            for chore in (lambda: _restock(b), lambda: _refuel(b, char, st)):
                 note = chore()
                 if note:
                     notes.append(note)
@@ -457,6 +458,246 @@ def audit(b):
     return "\n".join(out)
 
 
+# ---- machine-checkable acceptance (steering lever 3; agent-bridge 0.1.19)
+#
+# A job's brief ends with "ACCEPT: <clause>; <clause>; ...". Clauses:
+#   working X,Y                 the machine at X,Y reports working (or normal)
+#   status X,Y <status>         e.g. status 28.5,-3.5 full_output
+#   entity X,Y <name>           e.g. entity 70,-10 steel-furnace
+#   has X,Y <item> <op> N       items inside the entity (chest, machine, belt) e.g. has 26.5,0.5 steel-plate < 900
+#   belt X,Y <item>             the belt at X,Y carries the item
+#   drop X,Y DX,DY              the inserter at X,Y drops at DX,DY (within half a tile)
+#   recipe X,Y <recipe>         the assembler at X,Y runs that recipe
+#   count <item> <op> N         factory-wide stock (chests+belts+machines+carried)
+# ops: >= <= > < ==
+
+import re
+
+ACCEPT_KINDS = {"working", "status", "entity", "has", "belt", "drop", "recipe", "count"}
+_NOT_MAIN = ("transport-belt", "underground-belt", "splitter", "electric-pole")
+
+
+def accept_of(brief):
+    """The ACCEPT clauses at the end of a brief (empty list if none)."""
+    m = re.search(r"ACCEPT:\s*(.+)$", brief or "", re.S)
+    if not m:
+        return []
+    return [c.strip() for c in m.group(1).replace("\n", " ").split(";") if c.strip()]
+
+
+def validate_accept(clauses):
+    """Syntax errors in ACCEPT clauses (empty list when all are fine)."""
+    errs = []
+    for c in clauses:
+        t = c.split()
+        if not t or t[0].lower() not in ACCEPT_KINDS:
+            errs.append(f"'{c}': unknown check (use {', '.join(sorted(ACCEPT_KINDS))})")
+            continue
+        try:
+            _parse_clause(c)
+        except (ValueError, IndexError):
+            errs.append(f"'{c}': bad syntax")
+    return errs
+
+
+def _xy(s):
+    x, y = s.split(",")
+    return float(x), float(y)
+
+
+def _cmp(a, op, b):
+    return {">=": a >= b, "<=": a <= b, ">": a > b, "<": a < b, "==": a == b}[op]
+
+
+def _parse_clause(c):
+    t = c.split()
+    k = t[0].lower()
+    if k == "count":
+        return k, None, t[1:]
+    x, y = _xy(t[1])
+    rest = t[2:]
+    if k in ("has",) and (len(rest) < 3 or rest[1] not in (">=", "<=", ">", "<", "==")):
+        raise ValueError(c)
+    if k in ("status", "entity", "belt", "recipe", "drop") and not rest:
+        raise ValueError(c)
+    if k == "drop":
+        _xy(rest[0])
+    return k, (x, y), rest
+
+
+def eval_clause(b, c):
+    """(ok, what was measured) for one clause."""
+    k, xy, rest = _parse_clause(c)
+    if k == "count":
+        item, op, n = rest[0], rest[1], float(rest[2])
+        v = _dict_of(_dict_of(b.call("stock", item=item).get("items")).get(item)).get("total", 0)
+        return _cmp(v, op, n), f"{item} total {v}"
+    ents = _list_of(_dict_of(b.call("probe", x=xy[0], y=xy[1])).get("entities"))
+    if not ents:
+        return False, "nothing there"
+    main = next((e for e in ents if e.get("type") not in _NOT_MAIN), ents[0])
+    if k == "working":
+        return main.get("status") in ("working", "normal"), f"{main['name']} {main.get('status')}"
+    if k == "status":
+        return main.get("status") == rest[0], f"{main['name']} {main.get('status')}"
+    if k == "entity":
+        return any(e["name"] == rest[0] for e in ents), "found " + ",".join(e["name"] for e in ents)
+    if k == "recipe":
+        return main.get("recipe") == rest[0], f"{main['name']} recipe {main.get('recipe')}"
+    if k == "has":
+        item, op, n = rest[0], rest[1], float(rest[2])
+        v = sum(_dict_of(e.get("items")).get(item, 0) for e in ents)
+        return _cmp(v, op, n), f"{item} {v}"
+    if k == "belt":
+        belts = [e for e in ents if e.get("type") in ("transport-belt", "underground-belt", "splitter")]
+        v = sum(_dict_of(e.get("items")).get(rest[0], 0) for e in belts)
+        return bool(belts) and v > 0, f"belt {rest[0]} {v}" if belts else "no belt there"
+    if k == "drop":
+        ins = next((e for e in ents if e.get("type") == "inserter"), None)
+        if not ins:
+            return False, "no inserter there"
+        dx, dy = _xy(rest[0])
+        d = ins.get("drop") or {}
+        return abs(d.get("x", 1e9) - dx) <= 0.6 and abs(d.get("y", 1e9) - dy) <= 0.6, f"drops at {d.get('x')},{d.get('y')}"
+    return False, "unknown"
+
+
+def check_accept(b, clauses):
+    """[(clause, ok, measured)] for every clause; a clause that errors counts as failed."""
+    out = []
+    for c in clauses:
+        try:
+            ok, got = eval_clause(b, c)
+        except (BridgeError, ValueError, IndexError, KeyError) as e:
+            ok, got = False, f"error: {e}"
+        out.append((c, ok, got))
+    return out
+
+
+ACCEPT_HELP = ("end the brief with 'ACCEPT: <check>; <check>' (or pass accept=). Checks: working X,Y | "
+               "status X,Y S | entity X,Y NAME | recipe X,Y R | has X,Y ITEM >= N | belt X,Y ITEM | "
+               "drop X,Y DX,DY | count ITEM >= N")
+
+
+def vet_job(b, brief, place=None):
+    """Why a job may not be posted (None when it is fine): ACCEPT checks present and well-formed, and every
+    tile in `place` free (or upgradable)."""
+    clauses = accept_of(brief)
+    if not clauses:
+        return "a job needs machine-checkable ACCEPT checks: " + ACCEPT_HELP
+    errs = validate_accept(clauses)
+    if errs:
+        return "; ".join(errs) + ". " + ACCEPT_HELP
+    bad = []
+    for p in _list_of(place):
+        if not isinstance(p, dict) or "x" not in p or "y" not in p:
+            bad.append(f"{p}: needs item,x,y")
+            continue
+        try:
+            r = b.call("can_place", item=p.get("item"), name=p.get("name"), x=p["x"], y=p["y"],
+                       direction=p.get("direction"))
+        except BridgeError as e:
+            bad.append(f"{p.get('item')} {p['x']},{p['y']}: {e}")
+            continue
+        if not r.get("ok") and not r.get("upgrade_possible"):
+            bad.append(f"{p.get('item')} {p['x']},{p['y']} blocked by {','.join(_list_of(r.get('blockers'))) or 'terrain/water'}")
+    if bad:
+        return "tiles not placeable: " + "; ".join(bad[:6]) + ". Pick free tiles (view_map) and post again."
+    return None
+
+
+def finish_checked(b, job_id, state, note):
+    """finish_job with the ACCEPT checks run first. A 'done' whose checks fail stays open the first time
+    (the worker gets the measured values to fix); the second time it is closed blocked with them."""
+    from mcp_server import fmt_job
+    job = next((j for j in _list_of(b.call("jobs", all=True).get("jobs")) if j.get("id") == int(job_id)), None)
+    if not job:
+        return f"error: no job #{job_id}"
+    clauses = accept_of(job.get("brief"))
+    if validate_accept(clauses):
+        clauses = []  # a job posted before checks were enforced (prose ACCEPT): close unverified
+    checks = check_accept(b, clauses) if state == "done" else []
+    failed = [(c, got) for c, ok, got in checks if not ok]
+    if failed:
+        st = _load("crew-checks.json")
+        tries = st.get(str(job_id), 0) + 1
+        st[str(job_id)] = tries
+        _save("crew-checks.json", st)
+        measured = "; ".join(f"{c} -> {got}" for c, got in failed)
+        if tries < 2:
+            return (f"NOT DONE: #{job_id} ACCEPT checks fail: {measured}. Fix it and call finish_job again "
+                    "(a second failing finish closes it blocked with these values).")
+        state, note = "blocked", f"ACCEPT failed: {measured}. Worker said: {note or ''}"[:400]
+        log_outcome(job, "failed_checks", checks, note)
+    else:
+        log_outcome(job, state, checks, note)
+    if checks and not failed:
+        note = f"{note or ''} [verified {len(checks)}/{len(checks)}]"
+    return fmt_job(b.call("finish_job", id=int(job_id), state=state, note=note))
+
+
+# ---- outcome log and scorecard (steering lever 5)
+
+def log_outcome(job, state, checks, worker_note):
+    rec = {"ts": int(time.time()), "id": job.get("id"), "by": job.get("by"), "title": job.get("title"),
+           "kind": (job.get("title") or "").split(":")[0][:24], "state": state,
+           "checks": len(checks), "passed": sum(1 for _, ok, _ in checks if ok), "secs": job.get("age_s"),
+           "note": (worker_note or "")[:160]}
+    with open(server.RUNTIME / "outcomes.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps(rec) + "\n")
+
+
+def outcomes():
+    path = server.RUNTIME / "outcomes.jsonl"
+    if not path.exists():
+        return []
+    rows = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            rows.append(json.loads(line))
+        except ValueError:
+            pass
+    return rows
+
+
+def scorecard_data():
+    """Per worker: verified (done and all checks passed), unverified done, blocked, check failures, avg minutes."""
+    per = {}
+    for r in outcomes():
+        s = per.setdefault(r.get("by") or "?", {"jobs": 0, "verified": 0, "unverified": 0, "blocked": 0, "failed": 0, "secs": 0})
+        s["jobs"] += 1
+        s["secs"] += r.get("secs") or 0
+        if r["state"] == "done":
+            s["verified" if r["checks"] and r["passed"] == r["checks"] else "unverified"] += 1
+        elif r["state"] == "failed_checks":
+            s["failed"] += 1
+        else:
+            s["blocked"] += 1
+    return per
+
+
+def scorecard():
+    per = scorecard_data()
+    if not per:
+        return "no finished jobs logged yet"
+    lines = ["worker   jobs verified unverified blocked failed_checks avg_min  verified%"]
+    tot = {"jobs": 0, "verified": 0}
+    for w, s in sorted(per.items()):
+        tot["jobs"] += s["jobs"]
+        tot["verified"] += s["verified"]
+        lines.append(f"{w:8s} {s['jobs']:4d} {s['verified']:8d} {s['unverified']:10d} {s['blocked']:7d} {s['failed']:13d} "
+                     f"{s['secs'] / max(s['jobs'], 1) / 60:7.1f}  {round(100 * s['verified'] / max(s['jobs'], 1))}%")
+    lines.append(f"crew: {round(100 * tot['verified'] / max(tot['jobs'], 1))}% of {tot['jobs']} jobs verified (target 70%)")
+    kinds = {}
+    for r in outcomes():
+        k = kinds.setdefault(r.get("kind") or "?", [0, 0])
+        k[0] += 1
+        k[1] += 1 if r["state"] == "done" and r["checks"] and r["passed"] == r["checks"] else 0
+    worst = sorted(kinds.items(), key=lambda kv: kv[1][1] / kv[1][0])[:5]
+    lines.append("weakest job kinds: " + "; ".join(f"{k} {v[1]}/{v[0]}" for k, v in worst))
+    return "\n".join(lines)
+
+
 def _orders():
     try:
         return json.loads((server.RUNTIME / "orders.json").read_text())
@@ -670,6 +911,16 @@ def main():
     elif len(a) >= 3 and a[0] == "design-done":
         design_resolve(int(a[1]), a[2])
         print("closed")
+    elif len(a) >= 2 and a[0] == "check":
+        b = Bridge("planner", autostart=False)
+        job = next((j for j in _list_of(b.call("jobs", all=True).get("jobs")) if j.get("id") == int(a[1])), None)
+        if not job:
+            print(f"no job #{a[1]}")
+        else:
+            res = check_accept(b, accept_of(job.get("brief")))
+            print("\n".join(f"{'PASS' if ok else 'FAIL'}  {c}  -> {got}" for c, ok, got in res) or "this job has no ACCEPT clauses")
+    elif a and a[0] == "scorecard":
+        print(scorecard())
     elif a and a[0] == "audit":
         print(audit(Bridge("planner", autostart=False)))
     elif len(a) >= 2 and a[0] == "where":

@@ -47,8 +47,9 @@ the throughput that counts**. Everything else is either feeding that flow or was
   Every character always has a job:
   - Blocked upstream (plates backing up) means downstream is short of consumers. Build more
     consumers (assemblers, labs, the next science tier) rather than stopping.
-  - Otherwise, prepare the next project: craft its parts, scout and survey (oil, new ore
-    patches), or lay belts and poles to where it will go.
+  - Otherwise, prepare the next project: craft its parts, or lay belts and poles to where it will go.
+  - **Workers only build.** Surveys are yours, with read-only tools (`crew.py audit`, `probe`,
+    `view_map`, `belt_status`, `can_place`). Never post a "find out why" job.
 - **Never stop the line.** The planner must not be the constraint. The characters work from a
   job board through always-on workers (see the last section), so they keep moving while you measure and
   think. Keep the board stocked with at least one open job per character at all times. Only pause
@@ -101,7 +102,10 @@ Every job's `brief` states:
 - the step in the value stream and its target rate;
 - where its input comes from and where its output goes (the pull link);
 - exact positions and counts;
-- the acceptance check: "base_status x= y= radius= shows these machines working".
+- machine-checkable ACCEPT checks (required: `post_job` refuses a job without them), e.g.
+  `accept="working 30.5,-3.5; has 26.5,0.5 steel-plate < 900"`. Grammar in `STEERING.md`. Check the
+  result in the factory (the consumer works), not the worker's action. Pass `place=[{item,x,y,direction}]`
+  for what the job builds: blocked tiles are refused at posting. `crew.py check <id>` runs the checks.
 
 Keep a job small enough for one worker to finish in about 10 minutes. Logistics jobs (refuel,
 bootstrap materials) run alongside, never instead of fixing a broken link.
@@ -143,9 +147,10 @@ One read-only call gives the plant's state, alerts first:
 - `watch` wakes you when a job finishes or blocks, fewer than 2 jobs are open, or research stops.
   The planner loop is: `watch`, read alerts and finished-job notes, decide, then `post_job` /
   `update_job` / `start_research`, and back to `watch`.
-- When the board is empty, the workers' `crew.py next` posts **andon** jobs by itself for the
-  biggest down or starved loss, so the line keeps moving. Treat them as a sign the board ran dry,
-  and post constraint jobs yourself.
+- Workers no longer post andon jobs when the board is empty: an empty board is your miss. Keep one
+  open job per character.
+- `crew.py scorecard`: per worker and job kind, verified / unverified / blocked / failed checks.
+  Kinds with a low verified share need better briefs (exact tiles, sources) or go to the architect.
 
 ## Supply chains: plan the feed, never hand-feed
 
@@ -179,7 +184,7 @@ Characters hand work to each other through the board; you set the pattern.
 Planning and doing run in parallel. Board commands spawn nothing, so run them with any
 FACTORIO_AGENT_NAME:
 
-    $PY cli.py t post_job title="build 3 labs at 64,-6" brief="..." [for=agent] [priority=1..5] [after=<id>]
+    $PY cli.py t post_job title="build 3 labs at 64,-6" brief="..." accept="working 64.5,-6.5" [for=agent] [priority=1..5] [after=<id>]
     $PY cli.py t jobs                                     # open/claimed/blocked + last finished, with notes
     $PY cli.py t update_job id=7 state=open brief="..."   # reopen, cancel, re-prioritise, reassign
 
@@ -201,7 +206,7 @@ FACTORIO_AGENT_NAME:
 - **More hands:** when open jobs keep waiting while every character is busy, add a character. Any new
   name spawns one at the map spawn with the starter kit on its first command. Give it its own
   always-on Haiku worker. Haiku does best with well-specified jobs, so every brief carries exact
-  positions, counts, a material source and an accept check. Split big work (a layout, a long pipeline)
+  positions, counts, a material source and ACCEPT checks. Split big work (a layout, a long pipeline)
   into small jobs chained with `after=`, so characters help each other: one stocks a chest, the next
   builds from it.
 - **Token budget:** loop on `crew.py watch` (about 650 characters per wake-up) and call
