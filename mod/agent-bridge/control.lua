@@ -2104,7 +2104,25 @@ CMD.place = function(a, agent)
     name = res.name, position = p, direction = dir, force = ch.force, raise_built = true,
     move_stuck_players = true, create_build_effect_smoke = false,
   }
-  if res.type == "underground-belt" then create.type = a.belt_type or "input" end
+  if res.type == "underground-belt" then
+    -- like a player build: with no belt_type given, the piece becomes the exit of an unpaired entrance
+    -- of the same name that faces this way within range behind it; otherwise it is an entrance
+    local bt = a.belt_type
+    if not bt then
+      bt = "input"
+      local v = ({ [defines.direction.north] = { 0, -1 }, [defines.direction.east] = { 1, 0 },
+                   [defines.direction.south] = { 0, 1 }, [defines.direction.west] = { -1, 0 } })[dir]
+      for d = 1, (res.max_underground_distance or 4) + 1 do
+        local q = { x = p.x - v[1] * d, y = p.y - v[2] * d }
+        local hit = ch.surface.find_entities_filtered { position = q, name = res.name, limit = 1 }[1]
+        if hit then
+          if hit.direction == dir and hit.belt_to_ground_type == "input" and not hit.neighbours then bt = "output" end
+          break
+        end
+      end
+    end
+    create.type = bt
+  end
   local e = ch.surface.create_entity(create)
   if not e then fail("placement failed") end
   ch.remove_item { name = name, count = 1 }
