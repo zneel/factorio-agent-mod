@@ -1370,6 +1370,148 @@ CMD.production = function(a)
   }
 end
 
+---------------------------------------------------------------------------------------------------
+-- resource audit (read-only): what we own and where, ore left, power, machine capacity
+
+local function audit_surface(a) return game.surfaces[a.surface or "nauvis"] or game.surfaces[1] end
+
+-- Items across the whole factory by place: chests, belts, machines, labs, carried by agents.
+-- {item=...} narrows it to one item and lists the chests holding it.
+CMD.stock = function(a)
+  local surface, force = audit_surface(a), game.forces.player
+  local only, min = a.item, a.min or 25
+  local by = {}
+  local function add(kind, item, n)
+    if only and item ~= only then return end
+    local e = by[item]; if not e then e = {}; by[item] = e end
+    e[kind] = (e[kind] or 0) + n
+  end
+  local chests = {}
+  for _, e in pairs(surface.find_entities_filtered { type = { "container", "logistic-container" }, force = force }) do
+    local inv = e.get_inventory(defines.inventory.chest)
+    if inv then
+      local items, total = {}, 0
+      for _, it in pairs(inv.get_contents()) do
+        add("chest", it.name, it.count)
+        if not only or it.name == only then items[#items + 1] = { it.name, it.count }; total = total + it.count end
+      end
+      if total > 0 then
+        table.sort(items, function(x, y) return x[2] > y[2] end)
+        local top = {}
+        for i = 1, math.min(only and 1 or 4, #items) do top[items[i][1]] = items[i][2] end
+        chests[#chests + 1] = { pos = pos_of(e.position), total = total, items = top }
+      end
+    end
+  end
+  for _, e in pairs(surface.find_entities_filtered { type = { "transport-belt", "underground-belt", "splitter" }, force = force }) do
+    for i = 1, e.get_max_transport_line_index() do
+      for _, it in pairs(e.get_transport_line(i).get_contents()) do add("belt", it.name, it.count) end
+    end
+  end
+  for _, e in pairs(surface.find_entities_filtered { type = { "assembling-machine", "furnace", "boiler", "lab", "mining-drill" }, force = force }) do
+    local kind = e.type == "lab" and "lab" or "machine"
+    for i = 1, (e.get_max_inventory_index() or 0) do
+      local inv = e.get_inventory(i)
+      if inv and inv.valid then for _, it in pairs(inv.get_contents()) do add(kind, it.name, it.count) end end
+    end
+  end
+  for _, ag in pairs(storage.agents or {}) do
+    local ch = ag.character
+    if ch and ch.valid then for _, it in pairs(ch.get_main_inventory().get_contents()) do add("carried", it.name, it.count) end end
+  end
+  local items, order = {}, {}
+  for name, e in pairs(by) do
+    local total = 0
+    for _, n in pairs(e) do total = total + n end
+    if only or total >= min then e.total = total; items[name] = e; order[#order + 1] = name end
+  end
+  table.sort(order, function(x, y) return items[x].total > items[y].total end)
+  local ranked = {}
+  for i = 1, math.min(#order, a.limit or 70) do ranked[order[i]] = items[order[i]] end
+  table.sort(chests, function(x, y) return x.total > y.total end)
+  local top_chests = {}
+  for i = 1, math.min(#chests, a.chests or (only and 12 or 15)) do top_chests[i] = chests[i] end
+  return { items = ranked, chests = top_chests, chest_count = #chests }
+end
+
+-- Ore left per type, how many drills mine it and the hours until it runs out at that rate.
+CMD.ore = function(a)
+  local surface, force = audit_surface(a), game.forces.player
+  local bonus = force.mining_drill_productivity_bonus
+  local rate = {}
+  for _, d in pairs(surface.find_entities_filtered { type = "mining-drill", force = force }) do
+    local t = d.mining_target
+    if t and t.valid then
+      local r = rate[t.name] or { drills = 0, per_s = 0 }
+      r.drills = r.drills + 1
+      r.per_s = r.per_s + d.prototype.mining_speed * (1 + bonus) / t.prototype.mineable_properties.mining_time
+      rate[t.name] = r
+    end
+  end
+  local out = {}
+  for _, name in pairs({ "iron-ore", "copper-ore", "coal", "stone", "uranium-ore" }) do
+    local tiles, amount = 0, 0
+    for _, r in pairs(surface.find_entities_filtered { name = name, area = { { -400, -400 }, { 400, 400 } } }) do
+      tiles = tiles + 1; amount = amount + r.amount
+    end
+    if tiles > 0 then
+      local m = rate[name] or { drills = 0, per_s = 0 }
+      out[name] = { tiles = tiles, amount = amount, drills = m.drills, per_min = r2(m.per_s * 60),
+        hours_left = m.per_s > 0 and r2(amount / m.per_s / 3600) or nil }
+    end
+  end
+  return { ore = out, productivity_bonus = r2(bonus) }
+end
+
+-- Electric supply: engines, what they produce now versus their capacity, boilers, starved machines.
+CMD.power = function(a)
+  local surface, force = audit_surface(a), game.forces.player
+  local engines, gen, cap = 0, 0, 0
+  for _, e in pairs(surface.find_entities_filtered { type = "generator", force = force }) do
+    engines = engines + 1
+    gen = gen + e.energy_generated_last_tick * 60
+    local ok, mx = pcall(function() return e.prototype.get_max_energy_production(e.quality) end)
+    cap = cap + ((ok and mx) and mx * 60 or 900000)
+  end
+  local boilers = {}
+  for _, e in pairs(surface.find_entities_filtered { type = "boiler", force = force }) do
+    local s = STATUS_NAMES[e.status] or "?"
+    boilers[s] = (boilers[s] or 0) + 1
+  end
+  local solar = #surface.find_entities_filtered { type = "solar-panel", force = force }
+  local low, nopow = 0, 0
+  for _, e in pairs(surface.find_entities_filtered { type = { "assembling-machine", "lab", "mining-drill", "inserter", "furnace" }, force = force }) do
+    if e.status == defines.entity_status.low_power then low = low + 1
+    elseif e.status == defines.entity_status.no_power then nopow = nopow + 1 end
+  end
+  return { engines = engines, capacity_mw = r2(cap / 1e6), producing_mw = r2(gen / 1e6),
+    load_pct = cap > 0 and math.floor(gen / cap * 100) or 0, boilers = boilers, solar_panels = solar,
+    low_power_machines = low, no_power_machines = nopow }
+end
+
+-- What every recipe could make per minute with the machines we have, by status; Python compares it
+-- with the production statistics (made/used) to find the real bottleneck.
+CMD.capacity = function(a)
+  local surface, force = audit_surface(a), game.forces.player
+  local rows = {}
+  for _, e in pairs(surface.find_entities_filtered { type = { "assembling-machine", "furnace" }, force = force }) do
+    local r = e.get_recipe()
+    if r and r.products[1] then
+      local p = r.products[1]
+      local amount = p.amount or ((p.amount_min or 1) + (p.amount_max or 1)) / 2
+      amount = amount * (p.probability or 1)
+      local row = rows[r.name]
+      if not row then row = { product = p.name, machines = 0, per_min = 0, st = {} }; rows[r.name] = row end
+      row.machines = row.machines + 1
+      row.per_min = row.per_min + 60 / (r.energy / math.max(e.crafting_speed, 0.01)) * amount
+      local s = STATUS_NAMES[e.status] or "?"
+      row.st[s] = (row.st[s] or 0) + 1
+    end
+  end
+  for _, row in pairs(rows) do row.per_min = r2(row.per_min) end
+  return { recipes = rows }
+end
+
 CMD.set_intent = function(a, agent)
   local t = a.text and tostring(a.text) or nil
   if t == "" then t = nil end
@@ -2190,7 +2332,7 @@ end
 -- dispatch
 
 local NO_AGENT = { ping = true, agents = true, snapshot = true, terrain = true, set_mode = true, set_speed = true,
-  belt_status = true, team = true, post_job = true, update_job = true, jobs = true, production = true }
+  belt_status = true, team = true, post_job = true, update_job = true, jobs = true, production = true, stock = true, ore = true, power = true, capacity = true }
 
 
 local function dispatch(req)

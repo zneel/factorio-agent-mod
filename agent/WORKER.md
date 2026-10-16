@@ -34,6 +34,13 @@ place_row, pole_line, fluid_ports name= x= y= direction= (exact pipe tiles BEFOR
    a decision beyond the brief. Don't retry blocked jobs; the planner reopens them.
 4. Back to 1.
 
+## Orders and materials
+
+- A line starting `ORDER from overseer #n:` on top of any command output is a direct order: do it first,
+  then `$PY crew.py ack <you> <n> "what you did"`.
+- Need an item? `$PY crew.py where <item>` lists how many exist and which chests hold them; take building
+  materials from there (never hand-mine, never hand-feed machines).
+
 ## Record what you learn
 
 When you find a fact other agents will need (what a belt carries, free 3x3 spots, which machine feeds which,

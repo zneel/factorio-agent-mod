@@ -8,6 +8,9 @@
     python crew.py designs | design-done <id> "<note>"   supervisor: read / close design requests
     python crew.py note "<fact>" | notes [n]        shared facts about the base (positions, belt contents)
     python crew.py offline                          supervisor: workers whose heartbeat is stale
+    python crew.py order <char> "<text>" | orders   overseer: direct order, printed on every command until acked
+    python crew.py ack <char> <id> "<what you did>" worker: acknowledge an order
+    python crew.py audit | where <item>             stock, ore, power, capacity vs output | which chests hold an item
 
 `next` claims the next job for the character and prints it. While the board has nothing for it, the
 character does standing work instead of standing still (lean: no idle crew):
@@ -399,6 +402,85 @@ def design_resolve(n, note):
     (server.RUNTIME / "design-queue.json").write_text(json.dumps(q))
 
 
+# ---- resource audit (agent-bridge 0.1.18): what we own, ore left, power, capacity vs actual output
+
+KEY_STOCK = ["iron-plate", "copper-plate", "steel-plate", "stone-brick", "stone", "coal", "plastic-bar", "sulfur",
+             "iron-gear-wheel", "electronic-circuit", "advanced-circuit", "engine-unit", "copper-cable", "pipe",
+             "transport-belt", "inserter", "electric-mining-drill", "assembling-machine-2", "steel-furnace",
+             "electric-furnace", "small-electric-pole", "medium-electric-pole"]
+BLOCKED = ("full_output", "waiting_for_space_in_destination")
+
+
+def audit(b):
+    out = []
+    try:
+        items = _dict_of(_dict_of(b.call("stock", min=1, limit=300)).get("items"))
+    except BridgeError as e:
+        return f"audit needs agent-bridge 0.1.18 ({e})"
+    parts = []
+    for n in KEY_STOCK:
+        v = _dict_of(items.get(n))
+        if v.get("total"):
+            where = "/".join(f"{'h' if k == 'carried' else k[0]}{v[k]}" for k in ("chest", "belt", "machine", "carried") if v.get(k))
+            parts.append(f"{n} {v['total']} ({where})")
+    out.append("STOCK total (c=chests b=belts m=machines h=carried by hand): " + "; ".join(parts))
+    ore = _dict_of(_dict_of(b.call("ore")).get("ore"))
+    out.append("ORE: " + "; ".join(f"{n.replace('-ore', '')} {v.get('per_min', 0):g}/min from {v.get('drills', 0)} drills, "
+                                   f"{v.get('hours_left', '-')}h left of {v.get('amount', 0) // 1000}k" for n, v in ore.items()))
+    p = _dict_of(b.call("power"))
+    out.append(f"POWER: {p.get('producing_mw')} of {p.get('capacity_mw')} MW ({p.get('load_pct')}%), "
+               f"{p.get('engines')} engines, boilers {p.get('boilers')}, low/no power machines "
+               f"{p.get('low_power_machines')}/{p.get('no_power_machines')}")
+    cap = _dict_of(_dict_of(b.call("capacity")).get("recipes"))
+    prod = _dict_of(b.call("production", window="ten_minutes"))
+    pitems, pfluids = _dict_of(prod.get("items")), _dict_of(prod.get("fluids"))
+    rows = []
+    for rname, r in cap.items():
+        st = _dict_of(r.get("st"))
+        pv = _dict_of(pitems.get(r["product"]) or pfluids.get(r["product"]))
+        made, used, c = pv.get("made", 0), pv.get("used", 0), r.get("per_min") or 0
+        util = made / c if c else 0
+        blocked = sum(v for k, v in st.items() if k in BLOCKED)
+        starved = sum(v for k, v in st.items() if "shortage" in k or k in ("no_ingredients", "waiting_for_source_items", "no_input_fluid"))
+        flag = ""
+        if util >= 0.85 and used >= 0.9 * made:
+            flag = "BOTTLENECK (all output consumed; add machines)"
+        elif util < 0.5 and blocked >= max(1, r["machines"] // 2):
+            flag = "IDLE: blocked (no consumer)"
+        elif util < 0.5 and starved >= max(1, r["machines"] // 2):
+            flag = "IDLE: starved (input missing)"
+        rows.append((0 if flag.startswith("BOTTLENECK") else 1 if flag else 2, rname, r["machines"], c, made, used, util, flag))
+    rows.sort(key=lambda x: (x[0], -x[3]))
+    out.append("CAPACITY per min (recipe: machines, could make, made, used, utilisation):")
+    for _, rname, m, c, made, used, util, flag in rows[:18]:
+        out.append(f"  {rname}: {m} machines, cap {c:g}, made {made:g}, used {used:g}, {round(util * 100)}%  {flag}")
+    return "\n".join(out)
+
+
+def _orders():
+    try:
+        return json.loads((server.RUNTIME / "orders.json").read_text())
+    except (OSError, ValueError):
+        return []
+
+
+def give_order(char, text):
+    """Direct order from the overseer to one character; shown on top of every command it runs until acked."""
+    orders = _orders()
+    n = max([o["id"] for o in orders] + [0]) + 1
+    orders.append({"id": n, "to": char, "text": text[:600], "ts": int(time.time()), "acked": False})
+    (server.RUNTIME / "orders.json").write_text(json.dumps(orders[-60:]))
+    return n
+
+
+def ack_order(char, n, note):
+    orders = _orders()
+    for o in orders:
+        if o["id"] == n and o["to"] == char:
+            o["acked"], o["ack_note"], o["ack_ts"] = True, note[:300], int(time.time())
+    (server.RUNTIME / "orders.json").write_text(json.dumps(orders))
+
+
 def add_note(text):
     path = server.RUNTIME / "plant-notes.md"
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
@@ -588,6 +670,22 @@ def main():
     elif len(a) >= 3 and a[0] == "design-done":
         design_resolve(int(a[1]), a[2])
         print("closed")
+    elif a and a[0] == "audit":
+        print(audit(Bridge("planner", autostart=False)))
+    elif len(a) >= 2 and a[0] == "where":
+        st = Bridge("planner", autostart=False).call("stock", item=a[1])
+        v = _dict_of(_dict_of(st.get("items")).get(a[1]))
+        print(f"{a[1]}: {v.get('total', 0)} total " + str({k: n for k, n in v.items() if k != 'total'}))
+        for c in _list_of(st.get("chests")):
+            print(f"  chest {c['pos']['x']},{c['pos']['y']}: {c['total']}")
+    elif len(a) >= 3 and a[0] == "order":
+        print(f"order #{give_order(a[1], ' '.join(a[2:]))} for {a[1]} (shown on every command it runs until acked)")
+    elif len(a) >= 3 and a[0] == "ack":
+        ack_order(a[1], int(a[2]), " ".join(a[3:]) if len(a) > 3 else "done")
+        print("acknowledged")
+    elif a and a[0] == "orders":
+        for o in _orders()[-15:]:
+            print(f"#{o['id']} -> {o['to']} [{'acked: ' + o.get('ack_note', '') if o.get('acked') else 'OPEN'}] {o['text'][:120]}")
     elif len(a) >= 2 and a[0] == "note":
         add_note(" ".join(a[1:]))
         print("noted")

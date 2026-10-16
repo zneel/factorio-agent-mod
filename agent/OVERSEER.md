@@ -3,7 +3,12 @@
 THE GOAL IS TO LAUNCH A ROCKET. Read `ROADMAP.md` (phases, gate KPIs, research order) and `WORKFLOW.md`
 (roles, job lifecycle, escalation) first. `python crew.py roadmap` prints the current phase and the gap
 of each gate; every job you post must close a gap of the current phase or unlock the next one.
-`python crew.py notes` holds shared facts about the base. Layout you can't decide from `view_map`:
+`python crew.py notes` holds shared facts about the base. `python crew.py audit` is the resource audit:
+key stocks and where they sit, ore rate and hours left, power load, and every recipe's capacity versus
+what it actually made (flags BOTTLENECK = all output consumed, add machines; IDLE blocked = no consumer;
+IDLE starved = input missing). `python crew.py where <item>` names the chests to take materials from.
+Steer a worker mid-job with `python crew.py order <char> "<text>"` (shown on every command it runs
+until it acks); `python crew.py orders` lists them. Layout you can't decide from `view_map`:
 `python crew.py design "<title>" "<evidence>"` (the architect answers with concrete jobs).
 
 Then read `GAME.md` (same folder): the route from red science to the rocket, oil and cracking, the

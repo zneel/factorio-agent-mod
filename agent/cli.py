@@ -33,7 +33,7 @@ def parse(argv):
 
 
 # tools that never need (or spawn) a character
-NO_CHARACTER = {"plant_status", "production", "jobs", "post_job", "update_job", "team", "belt_status", "set_time_mode",
+NO_CHARACTER = {"plant_status", "production", "audit", "where", "jobs", "post_job", "update_job", "team", "belt_status", "set_time_mode",
                 "set_game_speed"}
 
 
@@ -70,6 +70,19 @@ def touch_heartbeat(char):
         pass
 
 
+def print_orders(char):
+    """Overseer orders for this character are printed on top of every command until acknowledged,
+    so a worker sees them mid-job, not only at its next claim (crew.py order / ack)."""
+    try:
+        import server
+        orders = json.loads((server.RUNTIME / "orders.json").read_text())
+    except (OSError, ValueError, ImportError):
+        return
+    for o in orders:
+        if o.get("to") == char and not o.get("acked"):
+            print(f"ORDER from overseer #{o['id']}: {o['text']}\n  (do it first; then ack: $PY crew.py ack {char} {o['id']} \"what you did\")")
+
+
 def run(b, argv):
     cmd, rest = argv[0], argv[1:]
     if unknown_character(b, argv):
@@ -77,6 +90,7 @@ def run(b, argv):
     tool = rest[0] if cmd == "t" and rest else cmd
     if tool not in NO_CHARACTER and b.agent not in ("planner", "board"):
         touch_heartbeat(b.agent)
+        print_orders(b.agent)
     if cmd == "t":
         # call an MCP tool exactly as an agent would, with the same terse output
         import mcp_server

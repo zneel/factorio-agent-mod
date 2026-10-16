@@ -61,3 +61,8 @@ Red+green-only techs (flammables, accumulators) soak up surplus red/green while 
   y=-12.5, x 24-46, y -20..-14; north-east near copper/stone for purple/yellow.
 - Smelting capacity gates count furnace capacity (plates/min if fed), not plates made (those can't
   exceed what the factory consumes). Steel/electric furnaces smelt at twice the stone-furnace speed.
+- **Audit (0.1.18), live:** plates are NOT short. ~14,700 iron (13,100 in chests), ~9,300 copper, ~2,400
+  steel, ~5,500 bricks, ~2,300 plastic. Iron is made at ~326/min, only ~128/min used; almost every
+  intermediate is idle-blocked (no consumer). The constraint is consumers: science assembly and research
+  (blue at 2 assemblers, 7.5/min max). P2's furnace-capacity gate still stands for the later purple/yellow
+  load, but the next build is more blue assembly, using the idle intermediates.
