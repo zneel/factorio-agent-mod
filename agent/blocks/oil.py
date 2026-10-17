@@ -1,5 +1,5 @@
 """Oil upgrade: refinery 1 to advanced oil processing + lubricant, heavy and light cracking, solid fuel.
-All pipe networks are routed by plan_pipe (multi-source A*, never touching another fluid network).
+All pipe networks are routed by plan_nx (networkx A*, never touching another fluid network).
 Writes runtime/blocks/oil-places.json; prints a short summary.   python blocks/oil.py [--build-scratch]"""
 import json
 import os
@@ -9,7 +9,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 AGENT = os.path.dirname(HERE)
 sys.path.insert(0, AGENT)
 import plan  # noqa: E402
-import plan_pipe  # noqa: E402
+import plan_nx  # noqa: E402
 
 PLANTS = [("LUBE", "lubricant", -41.5), ("HC", "heavy-oil-cracking", -37.5),
           ("LC", "light-oil-cracking", -33.5), ("SF", "solid-fuel-from-light-oil", -29.5)]
@@ -88,7 +88,7 @@ def main():
 
     def route(net, goal, start=None, into=None):
         foreign = set().union(*[v for k, v in nets.items() if k != net])             | set().union(*[v for k, v in port_tiles.items() if k != net])
-        r = plan_pipe.route_pipe(g, T(*start) if start else None, T(*goal), extra_blocked=blocked, foreign=foreign, own=nets[net], spans=spans,
+        r = plan_nx.route_pipe(g, {T(*start)} if start else set(nets[net]), T(*goal), blocked=blocked, foreign=foreign, own=nets[net], spans=spans,
                                  goal_dir=into or ("south" if goal[1] < Y - 1 else "north"))
         if not r:
             raise SystemExit(f"no route for {net} to {goal}")

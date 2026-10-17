@@ -1,4 +1,5 @@
 """Overseer planning algorithms: deterministic answers instead of an agent's guesswork.
+Run with the project venv (networkx, scipy): E:/modding/factorio-agent/.venv/Scripts/python plan.py ...
 
 All read-only (spawn no character). Run from this folder:
 
@@ -18,7 +19,6 @@ All read-only (spawn no character). Run from this folder:
         ASCII occupancy of an area: . free, # building, ~ water, t tree/rock, o ore, = belt.
 """
 import argparse
-import heapq
 import json
 import os
 import sys
@@ -122,85 +122,9 @@ class Grid:
 # ---------------------------------------------------------------- A* belt router
 
 def route(g, start, goal, from_dir=None, to_dir=None):
-    """Tiles are integer (x, y) = the tile whose centre is (x+.5, y+.5). A state is (x, y, d): a belt
-    on (x, y) moving in direction d. Moves: a belt on the next tile (cost 1, tree +2, ore +0.2, turning
-    +0.5) or an underground pair jumping 2..5 tiles over anything except water at the ends (cost 3 +
-    length). Returns a list of placements."""
-    sx, sy = start
-    gx, gy = goal
-    starts = [from_dir] if from_dir else list(DIRS)
-    h = lambda x, y: abs(x - gx) + abs(y - gy)  # noqa: E731
-    openq, best, came = [], {}, {}
-    for d in starts:
-        if g.free(sx, sy):
-            st = (sx, sy, d, False)  # last flag: this tile is an underground exit
-            best[st] = 0
-            heapq.heappush(openq, (h(sx, sy), 0, st))
-    while openq:
-        _, cost, st = heapq.heappop(openq)
-        if best.get(st, 1e18) < cost:
-            continue
-        x, y, d, _ = st
-        if (x, y) == (gx, gy) and (to_dir is None or d == to_dir):
-            return _unwind(came, st)
-        dx, dy = DIRS[d]
-        # plain belt onto the next tile, any new direction except reversing
-        for nd, (ndx, ndy) in DIRS.items():
-            if (ndx, ndy) == (-dx, -dy):
-                continue
-            nx, ny = x + dx, y + dy
-            if not g.free(nx, ny):
-                continue
-            c = g.at(nx, ny)
-            step = 1 + (2 if c == "t" else 0) + (0.2 if c == "o" else 0) + (0.5 if nd != d else 0)
-            _push(openq, best, came, st, (nx, ny, nd, False), cost + step, h(nx, ny))
-        # underground: entrance on the current tile (only if it is a plain belt), exit k tiles ahead
-        # an entrance must be fed straight: a belt turning into it side-loads, and a side-loaded underground
-        # passes only one lane (the other is blocked). The start tile counts as straight when from_dir is set.
-        prev = came.get(st)
-        straight = (prev is None and from_dir is not None) or (prev is not None and prev[0][2] == d)
-        if not st[3] and straight:
-            for k in range(2, UG_GAP + 2):
-                ex, ey = x + dx * k, y + dy * k
-                if not g.free(ex, ey):
-                    continue
-                if any(g.at(x + dx * i, y + dy * i) == "~" and False for i in range(1, k)):
-                    continue  # undergrounds pass under water too in 2.0; kept for clarity
-                _push(openq, best, came, st, (ex, ey, d, True), cost + 3 + k, h(ex, ey), ug=True)
-    return None
-
-
-def _push(openq, best, came, prev, st, cost, hh, ug=False):
-    if cost < best.get(st, 1e18):
-        best[st] = cost
-        came[st] = (prev, ug)
-        heapq.heappush(openq, (cost + hh, cost, st))
-
-
-def _unwind(came, st):
-    chain = [(st, False)]
-    while st in came:
-        prev, ug = came[st]
-        chain.append((prev, ug))
-        st = prev
-    chain.reverse()
-    # chain[i] = (state, ug flag of the move INTO state i+1 is stored on i+1); rebuild placements
-    out = []
-    states = [c[0] for c in chain]
-    ugs = [c[1] for c in chain]
-    for i, (x, y, d, is_exit) in enumerate(states):
-        nxt_ug = ugs[i]  # chain pairs each state with whether the move OUT of it is an underground jump
-        # the direction a belt points is the direction it moves items OUT of this tile
-        out_dir = d  # a state (x, y, d) is a belt on (x, y) pointing d; the next tile is (x, y) + d
-        if nxt_ug:
-            out.append({"item": "underground-belt", "x": x + .5, "y": y + .5, "direction": d, "belt_type": "input"})
-        elif is_exit:
-            out.append({"item": "underground-belt", "x": x + .5, "y": y + .5, "direction": d, "belt_type": "output"})
-        else:
-            out.append({"item": "transport-belt", "x": x + .5, "y": y + .5, "direction": out_dir})
-    # a plain belt that becomes an entrance: the move into the next state was underground, so the
-    # current tile's piece is the entrance (handled above); the last tile keeps its own direction
-    return out
+    """Belt route: networkx A* over the belt state graph (plan_nx.route_belt)."""
+    import plan_nx
+    return plan_nx.route_belt(g, start, goal, from_dir, to_dir)
 
 
 def segments(places):
@@ -338,6 +262,9 @@ def main():
     si.add_argument("--near", required=True)
     si.add_argument("--radius", type=float, default=60)
     si.add_argument("--avoid-ore", action="store_true")
+    lp = sub.add_parser("lp")
+    lp.add_argument("--hours", type=float, default=8)
+    lp.add_argument("--top", type=int, default=25)
     de = sub.add_parser("decide")
     de.add_argument("--hours", type=float, default=6)
     de.add_argument("--top", type=int, default=22)
@@ -368,8 +295,8 @@ def main():
             if os.path.exists(path):
                 g.block(json.load(open(path, encoding="utf-8")))
         if a.pipe:
-            import plan_pipe
-            places = plan_pipe.route_pipe(g, (sx, sy), (gx, gy))
+            import plan_nx
+            places = plan_nx.route_pipe(g, {(sx, sy)}, (gx, gy))
             if not places:
                 print("no pipe route (try a larger --margin)")
                 return
@@ -406,6 +333,10 @@ def main():
         else:
             d, x, y, cx, cy = best
             print(f"free {a.w}x{a.h}: top-left {x},{y}  centre {cx:g},{cy:g}  (distance {d:g})")
+    elif a.cmd == "lp":
+        import plan_lp
+        import crew
+        print(plan_lp.report(b, crew, a.hours, a.top))
     elif a.cmd == "decide":
         import plan_decide
         import crew

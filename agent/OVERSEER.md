@@ -212,7 +212,12 @@ FACTORIO_AGENT_NAME:
 - **Token budget:** loop on `crew.py watch` (about 650 characters per wake-up) and call
   `plant_status` (about 6,600) only when a decision needs the detail.
 
-## Decide from data: `plan.py decide --hours H` before every build choice
+## Decide from data: `plan.py lp --hours H` (and `decide`) before every build choice
+
+Run plan.py with the project venv: `E:/modding/factorio-agent/.venv/Scripts/python plan.py ...` (networkx,
+scipy). `lp` solves the supply chain as a linear program (scipy linprog / HiGHS): the fewest new machines
+that make the rest of the rocket in H hours from what exists, with shadow prices for the binding items.
+Routes (`route`, `route --pipe`) are networkx A* on a belt/pipe state graph.
 
 It totals what the rocket still needs (remaining research packs, silo, 100 rocket parts) through the
 game's recipes, turns it into per-minute rates for H hours, and ranks each item's gap against live
