@@ -139,7 +139,11 @@ def route(g, start, goal, from_dir=None, to_dir=None):
             step = 1 + (2 if c == "t" else 0) + (0.2 if c == "o" else 0) + (0.5 if nd != d else 0)
             _push(openq, best, came, st, (nx, ny, nd, False), cost + step, h(nx, ny))
         # underground: entrance on the current tile (only if it is a plain belt), exit k tiles ahead
-        if not st[3]:
+        # an entrance must be fed straight: a belt turning into it side-loads, and a side-loaded underground
+        # passes only one lane (the other is blocked). The start tile counts as straight when from_dir is set.
+        prev = came.get(st)
+        straight = (prev is None and from_dir is not None) or (prev is not None and prev[0][2] == d)
+        if not st[3] and straight:
             for k in range(2, UG_GAP + 2):
                 ex, ey = x + dx * k, y + dy * k
                 if not g.free(ex, ey):
