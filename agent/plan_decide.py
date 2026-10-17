@@ -65,6 +65,9 @@ def report(b, crew, hours=6.0, top=20):
         if req < 0.2:
             continue
         rname = by_product.get(item)
+        st = crew._dict_of(cap.get(rname, {}).get("st")) if rname else {}
+        full = st.get("full_output", 0) + st.get("waiting_for_space_in_destination", 0)
+        busy = sum(st.values()) or 0
         c = None
         if item in furn:
             c = furn[item]
@@ -83,6 +86,8 @@ def report(b, crew, hours=6.0, top=20):
         else:
             gap = req - c
             verdict = "OK" if c >= req else f"BUILD x{req / max(c, 1e-9):.1f} capacity"
+            if busy and full * 2 >= busy and c < req:
+                verdict += " LATER: machines are output-blocked now, build the consumers first"
         rows.append((gap / max(req, 1e-9), item, total, req, c, m, verdict, ore_note))
     rows.sort(key=lambda r: -r[0])
     out = [f"goal in {hours:g} h: {', '.join(f'{k} {v:g}' for k, v in goal.items())}",
