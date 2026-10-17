@@ -162,8 +162,12 @@ def route_pipe(g, starts, goal, blocked=(), foreign=(), own=(), spans=None, goal
                 tiles.append(v[:2])
             elif e["kind"] == "ptg":
                 t = e["entrance"]
-                places.append({"item": "pipe-to-ground", "x": t[0] + .5, "y": t[1] + .5, "direction": e["d"], "end": "entrance"})
-                places.append({"item": "pipe-to-ground", "x": v[0] + .5, "y": v[1] + .5, "direction": e["d"], "end": "exit"})
+                # "direction" is the game's: the side of the above-ground connection (an entrance faces back
+                # against the flow, an exit faces along it); "travel" is where the fluid goes
+                places.append({"item": "pipe-to-ground", "x": t[0] + .5, "y": t[1] + .5, "direction": REV[e["d"]],
+                               "travel": e["d"], "end": "entrance"})
+                places.append({"item": "pipe-to-ground", "x": v[0] + .5, "y": v[1] + .5, "direction": e["d"],
+                               "travel": e["d"], "end": "exit"})
                 tiles += [None, None]  # pieces join only along their axis: they cannot touch the path sideways
         # self-touch check: a plain pipe must not be beside a plain pipe of the path other than its neighbours in order
         bad = set()
