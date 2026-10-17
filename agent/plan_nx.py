@@ -104,6 +104,8 @@ def route_pipe(g, starts, goal, blocked=(), foreign=(), own=(), spans=None, goal
                 return True
         return False
 
+    if goal in blocked or (not g.free(*goal) and goal not in own):
+        return None  # the port tile is taken: reserve port tiles before routing belts
     for _ in range(tries):
         G = nx.DiGraph()
         todo = []

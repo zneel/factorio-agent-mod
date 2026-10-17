@@ -51,6 +51,8 @@ def main():
         g.rows = ["".join(row) for row in rows]
     block(phase1 + r["places"])
     block([{"item": "x", "x": 3.5, "y": 63.5}])  # B6 end stays a dead end
+    # fluid port tiles are reserved before any belt is routed (a feed once took EEU's lubricant port tile)
+    block([{"item": "x", "x": x, "y": y} for x, y in ((-19.5, 69.5), (-3.5, 75.5), (-3.5, 77.5))])
     routes = {}
     for key, s, gl, fd, td in [("yellow", (-2.5, 80.5), (58.5, -18.5), "east", "south"),   # K5 -> lab (long: first)
                                ("loopB3", (-20.5, 66.5), (-20.5, 79.5), "west", "east"),   # K1 -> K4
