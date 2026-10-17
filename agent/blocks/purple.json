@@ -237,5 +237,8 @@
    "dir": "east"
   }
  ],
- "notes": "BUS loops at its west end up x=-22.5 and becomes U1 flowing east: after two right turns iron is on U1's north lane, copper on its south lane (stationary). T2 and U2 heads sit at x=5.5 with a stub at 6.5, so plastic and stone side-load from the south onto their south lanes."
+ "notes": "BUS loops at its west end up x=-22.5 and becomes U1 flowing east: after two right turns iron is on U1's north lane, copper on its south lane (stationary). T2 and U2 heads sit at x=5.5 with a stub at 6.5, so plastic and stone side-load from the south onto their south lanes.",
+ "target": {
+  "production-science-pack": 0.10716666666666666
+ }
 }

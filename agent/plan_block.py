@@ -220,7 +220,9 @@ def compile_block(spec, recipes):
                        "group": "inserters", "why": f"{i['src']}->{i['dst']} {'+'.join(i['items'])}"})
     for p in poles:
         places.append({"item": "small-electric-pole", "x": p[0], "y": p[1], "group": "poles"})
-    return {"places": places, "errors": errors, "notes": notes, "pole_components": comps}
+    import plan_rules
+    rate_warnings = plan_rules.check_rates(places, machines, recipes, spec.get("target"))
+    return {"places": places, "errors": errors, "notes": notes, "pole_components": comps, "rates": rate_warnings}
 
 
 def _frange(a, b):
@@ -271,4 +273,4 @@ def check_on_map(b, places):
 
 def recipes_from_game(b, lua):
     data = json.loads(b.raw("/sc " + lua))
-    return {name: (ing, prod) for name, cat, energy, ing, prod, enabled in data}
+    return {name: (ing, prod, energy) for name, cat, energy, ing, prod, enabled in data}

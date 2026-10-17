@@ -212,6 +212,26 @@ FACTORIO_AGENT_NAME:
 - **Token budget:** loop on `crew.py watch` (about 650 characters per wake-up) and call
   `plant_status` (about 6,600) only when a decision needs the detail.
 
+## Design rules (factoriocheatsheet.com, enforced by plan_rules.py)
+
+1. Size every build from a target rate: `plan.py ratio <item> <per_min>` gives machine counts; build the
+   ratio, not "a few more". Science colours are built to the same packs/min (AM2: red 9, green 7.5,
+   blue 3.75, purple/yellow 6.43 per machine).
+2. Every block spec carries `"target": {item: items/s}`; `plan.py block` then checks each inserter
+   against the flow it must carry (inserter 0.83/s, long 1.15, fast 2.31; about 15% less from a
+   belt) and each machine against its speed, and names the fix (fast inserter, second inserter, one
+   more machine). No RATE line may be left when the jobs are posted.
+3. Lanes: yellow 7.5/s per lane, 15/s per belt. One item per lane on any belt that dead-ends; a
+   side-load puts both lanes on one; an underground entered from the side passes only one lane.
+4. Standard ratios: 3 cable : 2 circuit assemblers; 1 pump : 20 boilers : 40 engines (36 MW);
+   20 refineries : 5 heavy : 17 light cracking; 24 steel furnaces per yellow belt of ore or iron;
+   30 electric drills per yellow belt.
+5. Fluids: route with `plan.py route --pipe`; pipes join every neighbour, pipe-to-ground pairs join the
+   nearest piece in line (never overlap pairs on one line); build and run the fluid block on the
+   scratch server in realtime mode before posting.
+6. Power: keep usage under 80% of capacity (`crew.py audit` POWER); add steam (ratio above) before a
+   build that would pass it.
+
 ## Algorithms first (plan.py): compute, don't guess
 
 Layout questions have exact answers. Use these read-only tools before writing a brief, and paste their

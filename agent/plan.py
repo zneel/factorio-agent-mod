@@ -52,10 +52,26 @@ for _,e in pairs(s.find_entities_filtered{area={{x1,y1},{x2,y2}}}) do
   local t=e.type
   if t~='resource' and t~='character' and t~='item-entity' and t~='corpse' and t~='entity-ghost' then
     local c=35
-    if t=='tree' or t=='simple-entity' or t=='fish' then c=116 elseif t=='transport-belt' or t=='underground-belt' or t=='splitter' then c=61 end
+    if t=='tree' or t=='simple-entity' or t=='fish' then c=116 elseif t=='transport-belt' or t=='underground-belt' or t=='splitter' then c=61
+    elseif t=='pipe' or t=='pipe-to-ground' or t=='storage-tank' or t=='pump' or t=='offshore-pump' then c=112 end
     local bb=e.bounding_box
     for x=math.floor(bb.left_top.x+0.01),math.ceil(bb.right_bottom.x-0.01)-1 do
       for y=math.floor(bb.left_top.y+0.01),math.ceil(bb.right_bottom.y-0.01)-1 do mark(x,y,c) end
+    end
+  end
+end
+-- port tiles of fluid machines: a pipe placed there would join that machine's fluid
+for _,e in pairs(s.find_entities_filtered{area={{x1-3,y1-3},{x2+3,y2+3}}}) do
+  if e.type~='pipe' and e.type~='pipe-to-ground' and e.type~='resource' and e.type~='tree' then
+    local ok,fb=pcall(function() return e.fluidbox end)
+    if ok and fb and #fb>0 then
+      for i=1,#fb do
+        local okc,cs=pcall(function() return fb.get_pipe_connections(i) end)
+        if okc and cs then for _,c in pairs(cs) do
+          local tx,ty=math.floor(c.target_position.x),math.floor(c.target_position.y)
+          if tx>=x1 and tx<x2 and ty>=y1 and ty<y2 then local k=(ty-y1)*W+(tx-x1)+1 if g[k]==46 or g[k]==116 or g[k]==111 then g[k]=80 end end
+        end end
+      end
     end
   end
 end
@@ -313,6 +329,7 @@ def main():
     ro.add_argument("--to-dir", choices=list(DIRS))
     ro.add_argument("--margin", type=int, default=12)
     ro.add_argument("--json", action="store_true")
+    ro.add_argument("--pipe", action="store_true", help="route a pipe between two port tiles (fluid rules)")
     ro.add_argument("--reserve", action="append", default=[], help="JSON place list(s) whose tiles count as blocked")
     ro.add_argument("--save", help="append this route's places to a JSON file (for --reserve in the next route)")
     si = sub.add_parser("site")
@@ -347,6 +364,22 @@ def main():
         for path in a.reserve:
             if os.path.exists(path):
                 g.block(json.load(open(path, encoding="utf-8")))
+        if a.pipe:
+            import plan_pipe
+            places = plan_pipe.route_pipe(g, (sx, sy), (gx, gy))
+            if not places:
+                print("no pipe route (try a larger --margin)")
+                return
+            n_ptg = sum(1 for p in places if p["item"] == "pipe-to-ground")
+            print(f"pipe route: {len(places)} tiles ({len(places) - n_ptg} pipes, {n_ptg // 2} pipe-to-ground pairs)")
+            print("; ".join(f"{p['item']} {p['x']:g},{p['y']:g}" + (f" {p['direction']} {p['end']}" if p.get("end") else "")
+                            for p in places))
+            if a.json:
+                print(json.dumps(places, separators=(",", ":")))
+            if a.save:
+                old = json.load(open(a.save, encoding="utf-8")) if os.path.exists(a.save) else []
+                json.dump(old + places, open(a.save, "w", encoding="utf-8"))
+            return
         places = route(g, (sx, sy), (gx, gy), a.from_dir, a.to_dir)
         if not places:
             print("no route (try a larger --margin or other end tiles)")
@@ -378,6 +411,8 @@ def main():
             print("ERROR", e)
         for n in res["notes"]:
             print("note ", n)
+        for w in res.get("rates", []):
+            print("RATE ", w)
         groups = {}
         for p in res["places"]:
             groups.setdefault(p["group"], []).append(p)

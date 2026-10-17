@@ -190,7 +190,7 @@ def _list_of(v):
     return v if isinstance(v, list) else []
 
 
-JOBS_PER_WORKER = 3  # a worker's context grows with every step; after this many jobs it must stop and be replaced
+JOBS_PER_WORKER = 5  # a worker's context grows with every step; after this many jobs it must stop and be replaced
 
 
 def next_job(char, wait, fresh=False):
