@@ -98,7 +98,10 @@ def main():
             _add_span(spans, ptg[i], ptg[i + 1])
         for p in new:
             p["net"] = net
-            nets[net].add(T(p["x"], p["y"]))
+            if p["item"] == "pipe":  # branches start only from plain pipes; an underground piece joins along its axis only
+                nets[net].add(T(p["x"], p["y"]))
+            else:
+                blocked.add(T(p["x"], p["y"]))
         places.extend(new)
         return len(new)
 

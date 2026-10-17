@@ -9,7 +9,7 @@ DIRS = {"north": (0, -1), "east": (1, 0), "south": (0, 1), "west": (-1, 0)}
 PTG_GAP = 10
 
 
-def route_pipe(g, start, goal, extra_blocked=(), own=(), spans=None, goal_dir=None, foreign=()):
+def route_pipe(g, start, goal, extra_blocked=(), own=(), spans=None, goal_dir=None, foreign=(), touch_ok=()):
     """spans: {"v": set(tiles), "h": set(tiles)} covered by existing or planned pipe-to-ground pairs (ends
     included). A new pair may not lie on, or run along, a span on the same axis: underground pipes pair
     with the nearest piece in line, so overlapping pairs would join the wrong pieces (and mix fluids)."""
@@ -19,7 +19,7 @@ def route_pipe(g, start, goal, extra_blocked=(), own=(), spans=None, goal_dir=No
     blocked = set(extra_blocked) - set(own)   # obstacles (machines, chests): no pipe on them
     foreign = set(foreign) - set(own)          # other networks' pipes and ports: no pipe on or beside them
     own = set(own)  # tiles of the same fluid network: touching them is fine, and a branch may start from any
-    ends = {start, goal} | own
+    ends = {start, goal} | own | set(touch_ok)  # touch_ok: same-fluid tiles the route may touch but not start from
 
     def free(t):
         return (t in ends) or (t not in blocked and t not in foreign and g.free(*t))
