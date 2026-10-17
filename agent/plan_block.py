@@ -23,6 +23,7 @@ Rules the compiler applies:
 import json
 
 DIRV = {"north": (0, -1), "east": (1, 0), "south": (0, 1), "west": (-1, 0)}
+FLUIDS = {"water", "steam", "crude-oil", "heavy-oil", "light-oil", "petroleum-gas", "lubricant", "sulfuric-acid"}
 
 
 class SpecError(Exception):
@@ -47,6 +48,8 @@ def compile_block(spec, recipes):
         occupied[t] = what
         return True
 
+    for p in spec.get("pipes", []) + spec.get("extra", []):  # pipes at fluid ports, hand-placed poles: claimed first
+        claim((p["x"], p["y"]), p["item"])
     for m in machines.values():
         for t in _tiles3(m["x"], m["y"]):
             claim(t, m["id"])
@@ -54,7 +57,7 @@ def compile_block(spec, recipes):
         if not prod:
             errors.append(f"{m['id']}: unknown recipe {m['recipe']}")
             continue
-        m["ing"] = [i for i, _ in prod[0]]
+        m["ing"] = [i for i, _ in prod[0] if i not in FLUIDS]  # fluids come by pipe (spec "pipes")
         m["out"] = prod[1][0][0]
     for b in belts.values():
         step = 1 if b["x2"] >= b["x1"] else -1
@@ -201,7 +204,7 @@ def compile_block(spec, recipes):
         occupied[best] = "pole"
         uncovered -= gain
     # connectivity among the new poles (wire reach 7.5): report components
-    comps = _components(poles, 7.5)
+    comps = _components(poles + [(q["x"], q["y"]) for q in spec.get("extra", []) if q["item"] == "small-electric-pole"], 7.5)
 
     for b in belts.values():
         if b.get("build", True):
@@ -214,7 +217,13 @@ def compile_block(spec, recipes):
         p = {"item": m["entity"], "x": m["x"], "y": m["y"], "group": "machines"}
         if m["entity"] != "electric-furnace":
             p["recipe"] = m["recipe"]
+        if m.get("direction"):
+            p["direction"] = m["direction"]
         places.append(p)
+    for q in spec.get("pipes", []):
+        places.append(dict(q, group="pipes"))
+    for q in spec.get("extra", []):
+        places.append(dict(q, group="extra"))
     for i in inserters:
         places.append({"item": i["kind"], "x": i["tile"][0], "y": i["tile"][1], "direction": i["direction"],
                        "group": "inserters", "why": f"{i['src']}->{i['dst']} {'+'.join(i['items'])}"})

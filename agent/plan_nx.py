@@ -166,6 +166,12 @@ def route_pipe(g, starts, goal, blocked=(), foreign=(), own=(), spans=None, goal
                 tiles += [None, None]  # pieces join only along their axis: they cannot touch the path sideways
         # self-touch check: a plain pipe must not be beside a plain pipe of the path other than its neighbours in order
         bad = set()
+        used = {}
+        for q in places:  # a tile used twice (a pipe-to-ground end laid over the path's own pipe)
+            t = (int(q["x"] // 1), int(q["y"] // 1))
+            if t in used:
+                bad.add(t)
+            used[t] = 1
         pipe_idx = {t: i for i, t in enumerate(tiles) if t}
         for t, i in pipe_idx.items():
             for dx, dy in DIRS.values():
