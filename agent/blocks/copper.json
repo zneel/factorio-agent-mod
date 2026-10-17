@@ -1,0 +1,125 @@
+{
+ "name": "copper smelter (10 electric furnaces, 375 copper/min)",
+ "machines": [
+  {
+   "id": "A0",
+   "recipe": "copper-plate",
+   "x": 28.5,
+   "y": 40.5,
+   "entity": "electric-furnace"
+  },
+  {
+   "id": "A1",
+   "recipe": "copper-plate",
+   "x": 32.5,
+   "y": 40.5,
+   "entity": "electric-furnace"
+  },
+  {
+   "id": "A2",
+   "recipe": "copper-plate",
+   "x": 36.5,
+   "y": 40.5,
+   "entity": "electric-furnace"
+  },
+  {
+   "id": "A3",
+   "recipe": "copper-plate",
+   "x": 40.5,
+   "y": 40.5,
+   "entity": "electric-furnace"
+  },
+  {
+   "id": "A4",
+   "recipe": "copper-plate",
+   "x": 44.5,
+   "y": 40.5,
+   "entity": "electric-furnace"
+  },
+  {
+   "id": "B0",
+   "recipe": "copper-plate",
+   "x": 28.5,
+   "y": 46.5,
+   "entity": "electric-furnace"
+  },
+  {
+   "id": "B1",
+   "recipe": "copper-plate",
+   "x": 32.5,
+   "y": 46.5,
+   "entity": "electric-furnace"
+  },
+  {
+   "id": "B2",
+   "recipe": "copper-plate",
+   "x": 36.5,
+   "y": 46.5,
+   "entity": "electric-furnace"
+  },
+  {
+   "id": "B3",
+   "recipe": "copper-plate",
+   "x": 40.5,
+   "y": 46.5,
+   "entity": "electric-furnace"
+  },
+  {
+   "id": "B4",
+   "recipe": "copper-plate",
+   "x": 44.5,
+   "y": 46.5,
+   "entity": "electric-furnace"
+  }
+ ],
+ "belts": [
+  {
+   "id": "ORE",
+   "y": 43.5,
+   "x1": 48.5,
+   "x2": 26.5,
+   "dir": "west",
+   "lanes": {
+    "north": "copper-ore",
+    "south": null
+   }
+  },
+  {
+   "id": "PA",
+   "y": 37.5,
+   "x1": 26.5,
+   "x2": 48.5,
+   "dir": "east",
+   "lanes": {
+    "north": "copper-plate",
+    "south": null
+   }
+  },
+  {
+   "id": "PB",
+   "y": 49.5,
+   "x1": 26.5,
+   "x2": 48.5,
+   "dir": "east",
+   "lanes": {
+    "north": null,
+    "south": "copper-plate"
+   }
+  }
+ ],
+ "outputs": {
+  "A0": "PA",
+  "A1": "PA",
+  "A2": "PA",
+  "A3": "PA",
+  "A4": "PA",
+  "B0": "PB",
+  "B1": "PB",
+  "B2": "PB",
+  "B3": "PB",
+  "B4": "PB"
+ },
+ "target": {
+  "copper-plate": 6.0
+ }
+}
