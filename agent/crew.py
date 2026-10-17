@@ -600,7 +600,9 @@ def vet_job(b, brief, place=None):
         except BridgeError as e:
             bad.append(f"{p.get('item')} {p['x']},{p['y']}: {e}")
             continue
-        if not r.get("ok") and not r.get("upgrade_possible"):
+        blockers = _list_of(r.get("blockers"))
+        natural = blockers and all(any(k in str(n) for k in ("tree", "rock")) for n in blockers)
+        if not r.get("ok") and not r.get("upgrade_possible") and not natural:  # trees/rocks: the worker mines them
             bad.append(f"{p.get('item')} {p['x']},{p['y']} blocked by {','.join(_list_of(r.get('blockers'))) or 'terrain/water'}")
     if bad:
         return "tiles not placeable: " + "; ".join(bad[:6]) + ". Pick free tiles (view_map) and post again."

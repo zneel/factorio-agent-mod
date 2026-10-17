@@ -70,6 +70,19 @@ Optional: trains (when ore is far or the bus needs several belts of one plate), 
 - Keep lanes in mind: sideloading a belt onto another puts everything on one lane; never connect a belt
   into a feed you haven't checked with `belt_status`.
 
+## Ratios (factoriocheatsheet.com, 2.0; plain machines, no modules)
+
+- Belts: yellow 15 items/s (7.5 per lane), red 30, blue 45. Underground gap: yellow 4 tiles, red 6, blue 8. A belt tile holds 8 items.
+- Smelting: iron/copper/stone 3.2 s each, steel 16 s (5 iron -> 1 steel). Stone furnace speed 1 (18.75 plates/min), steel and electric furnace 2 (37.5/min). Each burner furnace burns 0.0225 coal/s.
+- One yellow belt of ore (900/min) feeds 48 stone or 24 steel furnaces. A steel furnace making steel takes 37.5 iron/min and makes 7.5 steel/min, so one yellow belt of iron feeds 24 of them.
+- Electric mining drill: 0.5 ore/s (30/min). 30 drills fill one yellow belt (15 per lane).
+- Steam: 1 offshore pump : 20 boilers : 40 steam engines = 36 MW. One boiler burns 1.8 MW = one coal (4 MJ) every 2.2 s.
+- Green circuits: 3 cable assemblers : 2 circuit assemblers (any equal tier).
+- Science: research takes every pack type at the same rate, so build each colour to the same packs/min.
+  Assembling machine 2 makes per minute: red 9 (5 s/pack), green 7.5 (6 s), blue 3.75 (2 per 24 s), purple 6.4 (3 per 21 s), yellow 6.4 (3 per 21 s).
+- Rocket (2.0): 100 rocket parts, each 10 low density structure + 10 processing unit + 10 rocket fuel, made in the silo.
+- Advanced oil processing with cracking: 20 refineries : 5 heavy-oil crackers : 17 light-oil crackers turns all oil into petroleum gas.
+
 ## Traps that stall runs
 
 - Thinking in colours instead of throughput: measure packs per minute (`production`), not machines.
