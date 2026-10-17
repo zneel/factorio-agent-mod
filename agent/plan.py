@@ -338,6 +338,9 @@ def main():
     si.add_argument("--near", required=True)
     si.add_argument("--radius", type=float, default=60)
     si.add_argument("--avoid-ore", action="store_true")
+    de = sub.add_parser("decide")
+    de.add_argument("--hours", type=float, default=6)
+    de.add_argument("--top", type=int, default=22)
     bl = sub.add_parser("block")
     bl.add_argument("spec")
     bl.add_argument("--json", action="store_true")
@@ -403,6 +406,10 @@ def main():
         else:
             d, x, y, cx, cy = best
             print(f"free {a.w}x{a.h}: top-left {x},{y}  centre {cx:g},{cy:g}  (distance {d:g})")
+    elif a.cmd == "decide":
+        import plan_decide
+        import crew
+        print(plan_decide.report(b, crew, a.hours, a.top))
     elif a.cmd == "block":
         import plan_block
         spec = json.load(open(a.spec, encoding="utf-8"))

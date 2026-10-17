@@ -212,6 +212,13 @@ FACTORIO_AGENT_NAME:
 - **Token budget:** loop on `crew.py watch` (about 650 characters per wake-up) and call
   `plant_status` (about 6,600) only when a decision needs the detail.
 
+## Decide from data: `plan.py decide --hours H` before every build choice
+
+It totals what the rocket still needs (remaining research packs, silo, 100 rocket parts) through the
+game's recipes, turns it into per-minute rates for H hours, and ranks each item's gap against live
+capacity (machines x speed, furnaces, drills) and live made/used. Build the top gaps; leave the OK lines
+alone. A mine is only needed when ore capacity is below the need; usually the gap is smelting or consumers.
+
 ## Design rules (factoriocheatsheet.com, enforced by plan_rules.py)
 
 1. Size every build from a target rate: `plan.py ratio <item> <per_min>` gives machine counts; build the
