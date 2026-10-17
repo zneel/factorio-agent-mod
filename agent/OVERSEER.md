@@ -224,6 +224,15 @@ game's recipes, turns it into per-minute rates for H hours, and ranks each item'
 capacity (machines x speed, furnaces, drills) and live made/used. Build the top gaps; leave the OK lines
 alone. A mine is only needed when ore capacity is below the need; usually the gap is smelting or consumers.
 
+## Map snapshot: `mapdump.py` (data screenshot) and `mapq.py` (queries)
+
+`.venv/Scripts/python mapdump.py` writes runtime/map/snapshot.json.gz (every entity with recipe, status,
+contents, belt lanes, inserter pick/drop, fluid segments, power network; ore/water raster) and a PNG
+render (starved or unpowered machines in red). `mapq.py item <name> --at X,Y` lists the belt lines that
+carry an item (networkx components) and the nearest tile; `mapq.py near X,Y` lists what is around a site;
+`mapq.py idle` groups blocked/starved/unpowered machines. Use it with `plan.py lp`: the LP says what is
+missing, the snapshot says whether an existing line can feed a site or the block must make it locally.
+
 ## Design rules (factoriocheatsheet.com, enforced by plan_rules.py)
 
 1. Size every build from a target rate: `plan.py ratio <item> <per_min>` gives machine counts; build the
