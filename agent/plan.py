@@ -64,6 +64,15 @@ for _,e in pairs(s.find_entities_filtered{area={{x1,y1},{x2,y2}}}) do
     end
   end
 end
+-- the free tile in front of a belt end: a belt placed there would take that belt's items (side-load)
+local DV={[0]={0,-1},[4]={1,0},[8]={0,1},[12]={-1,0}}
+for _,e in pairs(s.find_entities_filtered{area={{x1-1,y1-1},{x2+1,y2+1}},type={'transport-belt','underground-belt'}}) do
+  local v=DV[e.direction]
+  if v and not (e.type=='underground-belt' and e.belt_to_ground_type=='input') then
+    local fx,fy=math.floor(e.position.x)+v[1],math.floor(e.position.y)+v[2]
+    if fx>=x1 and fx<x2 and fy>=y1 and fy<y2 then local k=(fy-y1)*W+(fx-x1)+1 if g[k]==46 or g[k]==111 or g[k]==116 then g[k]=35 end end
+  end
+end
 -- port tiles of fluid machines: a pipe placed there would join that machine's fluid
 for _,e in pairs(s.find_entities_filtered{area={{x1-3,y1-3},{x2+3,y2+3}}}) do
   if e.type~='pipe' and e.type~='pipe-to-ground' and e.type~='resource' and e.type~='tree' then

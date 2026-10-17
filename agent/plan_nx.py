@@ -21,10 +21,9 @@ def _belt_graph(g, start, goal, from_dir, to_dir, ug_gap=4):
     sx, sy = start
     starts = [from_dir] if from_dir else list(DIRS)
     seen, todo = set(), []
-    for d in starts:
-        if g.free(sx, sy):
-            G.add_edge("S", (sx, sy, d, "b"), weight=0, kind="start")
-            todo.append((sx, sy, d, "b"))
+    for d in starts:  # the start tile is chosen on purpose (often the tile a belt end points into): no free check
+        G.add_edge("S", (sx, sy, d, "b"), weight=0, kind="start")
+        todo.append((sx, sy, d, "b"))
     while todo:
         node = todo.pop()
         if node in seen:
