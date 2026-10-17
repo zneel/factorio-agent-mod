@@ -134,7 +134,7 @@ def route_pipe(g, starts, goal, blocked=(), foreign=(), own=(), spans=None, goal
                 axis = "v" if dx == 0 else "h"
                 if t in spans[axis] or t == goal:
                     continue
-                for k in range(2, ptg_gap + 2):
+                for k in range(2, ptg_gap + 1):  # pieces at most ptg_gap apart (game: max_underground_distance 10)
                     if (t[0] + dx * (k - 1), t[1] + dy * (k - 1)) in spans[axis]:
                         break
                     e = (t[0] + dx * k, t[1] + dy * k)
