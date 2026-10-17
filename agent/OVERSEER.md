@@ -211,3 +211,19 @@ FACTORIO_AGENT_NAME:
   builds from it.
 - **Token budget:** loop on `crew.py watch` (about 650 characters per wake-up) and call
   `plant_status` (about 6,600) only when a decision needs the detail.
+
+## Algorithms first (plan.py): compute, don't guess
+
+Layout questions have exact answers. Use these read-only tools before writing a brief, and paste their
+output (tiles, directions, counts) into the job:
+
+    $PY plan.py ratio production-science-pack 12.8      # machines per recipe and raw inputs/min, from the game's recipes
+    $PY plan.py route 108.5,-14.5 -10.5,-24.5 [--from-dir west] [--to-dir south] [--json]
+                                                        # A* belt route on the live map; undergrounds over obstacles;
+                                                        # --json prints the place list for post_job
+    $PY plan.py site 24 16 --near -8,-20 [--radius 60]  # nearest fully free W x H rectangle
+    $PY plan.py grid 10,-13 26,-8                       # occupancy: . free # building = belt ~ water t tree o ore
+
+A route's underground exits carry belt_type=output in the place list. Re-run `route` right before posting:
+the map changes as the crew builds.
+
