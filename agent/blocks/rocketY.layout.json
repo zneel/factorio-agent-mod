@@ -1,0 +1,73 @@
+{
+ "name": "rocket block Y (CP-SAT): engines, electric engines, batteries, frames, utility packs",
+ "origin": [
+  -17.5,
+  65.5
+ ],
+ "rows": 3,
+ "cols": 4,
+ "machines": [
+  {
+   "id": "C",
+   "recipe": "copper-cable"
+  },
+  {
+   "id": "G",
+   "recipe": "electronic-circuit"
+  },
+  {
+   "id": "PIPEM",
+   "recipe": "pipe"
+  },
+  {
+   "id": "ENG",
+   "recipe": "engine-unit"
+  },
+  {
+   "id": "GEARM",
+   "recipe": "iron-gear-wheel"
+  },
+  {
+   "id": "EEU",
+   "recipe": "electric-engine-unit",
+   "end": "west"
+  },
+  {
+   "id": "FRM",
+   "recipe": "flying-robot-frame"
+  },
+  {
+   "id": "BAT",
+   "recipe": "battery",
+   "entity": "chemical-plant",
+   "end": "east"
+  },
+  {
+   "id": "U",
+   "recipe": "utility-science-pack"
+  }
+ ],
+ "inputs": [
+  {
+   "name": "B5",
+   "left": "copper-plate",
+   "right": "iron-plate"
+  },
+  {
+   "name": "B3",
+   "left": "low-density-structure",
+   "right": "steel-plate"
+  },
+  {
+   "name": "B4",
+   "left": "processing-unit",
+   "right": "copper-cable"
+  }
+ ],
+ "exports": [
+  "utility-science-pack"
+ ],
+ "target": {
+  "utility-science-pack": 0.06666666666666667
+ }
+}

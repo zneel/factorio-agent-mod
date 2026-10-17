@@ -15,6 +15,10 @@ All read-only (spawn no character). Run from this folder:
     python plan.py block spec.json [--json]
         Block compiler (plan_block.py): machines + belt lanes -> every inserter (direct or belt, normal
         or long-handed), lane checks, poles by greedy set cover, all checked on the live map.
+    python plan.py layout spec.layout.json [--out block.json] [--seconds 30]
+        Layout search (plan_layout.py, OR-Tools CP-SAT): rows/columns of machines, belt lanes and directions
+        so that every ingredient is reachable, outputs land on the right far lane and producers are upstream
+        of their readers; writes a plan_block spec.
     python plan.py grid X1,Y1 X2,Y2
         ASCII occupancy of an area: . free, # building, ~ water, t tree/rock, o ore, = belt.
 """
@@ -45,7 +49,7 @@ GRID_LUA = r"""
 local s=game.surfaces[1] local x1,y1,x2,y2=%d,%d,%d,%d
 local W,H=x2-x1,y2-y1 local g={}
 for i=1,W*H do g[i]=46 end
-local function mark(x,y,c) if x>=x1 and x<x2 and y>=y1 and y<y2 then local k=(y-y1)*W+(x-x1)+1 if g[k]==46 or c==35 or c==126 then g[k]=c end end end
+local function mark(x,y,c) if x>=x1 and x<x2 and y>=y1 and y<y2 then local k=(y-y1)*W+(x-x1)+1 if g[k]==46 or (g[k]==111 and c~=111) or c==35 or c==126 then g[k]=c end end end
 for _,t in pairs(s.find_tiles_filtered{area={{x1,y1},{x2,y2}},collision_mask='water_tile'}) do mark(t.position.x,t.position.y,126) end
 for _,r in pairs(s.find_entities_filtered{area={{x1,y1},{x2,y2}},type='resource'}) do mark(math.floor(r.position.x),math.floor(r.position.y),111) end
 for _,e in pairs(s.find_entities_filtered{area={{x1,y1},{x2,y2}}}) do
@@ -268,6 +272,10 @@ def main():
     de = sub.add_parser("decide")
     de.add_argument("--hours", type=float, default=6)
     de.add_argument("--top", type=int, default=22)
+    lo = sub.add_parser("layout")
+    lo.add_argument("spec")
+    lo.add_argument("--out")
+    lo.add_argument("--seconds", type=float, default=30.0)
     bl = sub.add_parser("block")
     bl.add_argument("spec")
     bl.add_argument("--json", action="store_true")
@@ -341,6 +349,9 @@ def main():
         import plan_decide
         import crew
         print(plan_decide.report(b, crew, a.hours, a.top))
+    elif a.cmd == "layout":
+        import plan_layout
+        print(plan_layout.report(b, a.spec, a.out, a.seconds))
     elif a.cmd == "block":
         import plan_block
         spec = json.load(open(a.spec, encoding="utf-8"))

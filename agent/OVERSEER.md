@@ -253,6 +253,20 @@ missing, the snapshot says whether an existing line can feed a site or the block
 6. Power: keep usage under 80% of capacity (`crew.py audit` POWER); add steam (ratio above) before a
    build that would pass it.
 
+## Layout search: `plan.py layout X.layout.json --out X.json` (OR-Tools CP-SAT) before `plan.py block`
+Never hand-place machines in a block: give the machines, the input bundles (two items that arrive on one belt,
+left/right as they arrive) and the exports, and CP-SAT chooses rows, columns, belt lanes and directions.
+The layout is correct by construction:
+- every ingredient is reachable;
+- outputs land on the far lane;
+- producers are upstream of their readers;
+- fast items never ride long-handed inserters;
+- fluid machines sit at row ends (`"end": "west"`).
+It grows the grid until a layout exists. A bundle may get a second belt, a U-turn loop like block X's B2→B5.
+The compiler (`plan.py block`) now also rejects a reader placed upstream of every producer of its lane. That
+was the purple T1 bug: red circuits flowed away from the electric-furnace assembler.
+Examples: blocks/purple.layout.json (3x5, 5 s) and blocks/rocketY.layout.json (3x4, under 1 s).
+
 ## Algorithms first (plan.py): compute, don't guess
 
 Layout questions have exact answers. Use these read-only tools before writing a brief, and paste their

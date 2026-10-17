@@ -1,0 +1,84 @@
+{
+ "name": "purple test",
+ "origin": [
+  -18.5,
+  -31.5
+ ],
+ "rows": 3,
+ "cols": 5,
+ "machines": [
+  {
+   "id": "C1",
+   "recipe": "copper-cable"
+  },
+  {
+   "id": "G1",
+   "recipe": "electronic-circuit"
+  },
+  {
+   "id": "C2",
+   "recipe": "copper-cable"
+  },
+  {
+   "id": "G2",
+   "recipe": "electronic-circuit"
+  },
+  {
+   "id": "A1",
+   "recipe": "advanced-circuit"
+  },
+  {
+   "id": "A2",
+   "recipe": "advanced-circuit"
+  },
+  {
+   "id": "A3",
+   "recipe": "advanced-circuit"
+  },
+  {
+   "id": "MOD",
+   "recipe": "productivity-module"
+  },
+  {
+   "id": "S",
+   "recipe": "iron-stick"
+  },
+  {
+   "id": "RAIL",
+   "recipe": "rail"
+  },
+  {
+   "id": "P",
+   "recipe": "production-science-pack"
+  },
+  {
+   "id": "E",
+   "recipe": "electric-furnace"
+  },
+  {
+   "id": "F",
+   "recipe": "stone-brick",
+   "entity": "electric-furnace"
+  }
+ ],
+ "inputs": [
+  {
+   "left": "copper-plate",
+   "right": "iron-plate"
+  },
+  {
+   "left": "steel-plate",
+   "right": "plastic-bar"
+  },
+  {
+   "left": "stone",
+   "right": null
+  }
+ ],
+ "exports": [
+  "production-science-pack"
+ ],
+ "target": {
+  "production-science-pack": 0.10666666666666667
+ }
+}

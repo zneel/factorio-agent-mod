@@ -166,8 +166,14 @@ def compile_block(spec, recipes):
                               "items": pb["items"]})
 
     for (bid, lane), u in lane_users.items():
-        if u["out"] and u["in"] and not (u["in"] - u["out"]):
-            pass
+        # flow: a machine reading a lane that this block feeds must be downstream of at least one producer
+        if u["out"]:
+            east = belts[bid]["x2"] >= belts[bid]["x1"]
+            for c in u["in"]:
+                cx = machines[c]["x"]
+                if not any((machines[p]["x"] <= cx) if east else (machines[p]["x"] >= cx) for p in u["out"]):
+                    errors.append(f"{c} reads {bid} {lane} lane upstream of every producer {sorted(u['out'])}: "
+                                  f"it never gets {belts[bid]['lanes'][lane]}")
         if len(u["out"]) > 1:
             notes.append(f"{bid} {lane} lane: several producers {sorted(u['out'])} (fine if they make the same item)")
     for b in belts.values():
