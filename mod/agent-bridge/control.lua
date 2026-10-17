@@ -2395,8 +2395,14 @@ CMD.set_mode = function(a)
     fail("mode must be auto, turn or realtime")
   end
   storage.mode = a.mode
-  if a.mode == "realtime" then game.tick_paused = false end
-  return { mode = storage.mode }
+  -- apply now: while the game is paused on_tick does not run, so a switch to auto (with a human online)
+  -- or realtime must unpause here; turn pauses at once instead of on the next tick
+  if a.mode == "turn" then
+    game.tick_paused = true
+  elseif a.mode == "realtime" or #game.connected_players > 0 then
+    game.tick_paused = false
+  end
+  return { mode = storage.mode, paused = game.tick_paused }
 end
 
 CMD.set_speed = function(a)

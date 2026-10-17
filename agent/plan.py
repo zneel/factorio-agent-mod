@@ -11,6 +11,9 @@ All read-only (spawn no character). Run from this folder:
         segments for a brief and a `place` list for post_job (--json).
     python plan.py site W H --near X,Y [--radius 60] [--avoid-ore]
         Nearest fully free W x H rectangle (top-left and centre), from an integral image.
+    python plan.py block spec.json [--json]
+        Block compiler (plan_block.py): machines + belt lanes -> every inserter (direct or belt, normal
+        or long-handed), lane checks, poles by greedy set cover, all checked on the live map.
     python plan.py grid X1,Y1 X2,Y2
         ASCII occupancy of an area: . free, # building, ~ water, t tree/rock, o ore, = belt.
 """
@@ -73,6 +76,22 @@ class Grid:
         if len(rows) != y2 - y1:
             raise SystemExit("map snapshot failed: " + "\n".join(rows[:3]))
         return cls(x1, y1, x2, y2, rows)
+
+    SIZE = {"assembling-machine-2": 3, "electric-furnace": 3, "electric-mining-drill": 3, "steel-furnace": 2,
+            "stone-furnace": 2}
+
+    def block(self, places):
+        """Mark planned placements as blocked (so routes avoid what is about to be built)."""
+        rows = [list(r) for r in self.rows]
+        for p in places:
+            n = self.SIZE.get(p["item"], 1)
+            for dx in range(n):
+                for dy in range(n):
+                    x = int((p["x"] - n / 2 + 0.01) // 1) + dx
+                    y = int((p["y"] - n / 2 + 0.01) // 1) + dy
+                    if self.x1 <= x < self.x2 and self.y1 <= y < self.y2:
+                        rows[y - self.y1][x - self.x1] = "#"
+        self.rows = ["".join(r) for r in rows]
 
     def at(self, x, y):
         if not (self.x1 <= x < self.x2 and self.y1 <= y < self.y2):
@@ -290,12 +309,17 @@ def main():
     ro.add_argument("--to-dir", choices=list(DIRS))
     ro.add_argument("--margin", type=int, default=12)
     ro.add_argument("--json", action="store_true")
+    ro.add_argument("--reserve", action="append", default=[], help="JSON place list(s) whose tiles count as blocked")
+    ro.add_argument("--save", help="append this route's places to a JSON file (for --reserve in the next route)")
     si = sub.add_parser("site")
     si.add_argument("w", type=int)
     si.add_argument("h", type=int)
     si.add_argument("--near", required=True)
     si.add_argument("--radius", type=float, default=60)
     si.add_argument("--avoid-ore", action="store_true")
+    bl = sub.add_parser("block")
+    bl.add_argument("spec")
+    bl.add_argument("--json", action="store_true")
     gr = sub.add_parser("grid")
     gr.add_argument("a")
     gr.add_argument("b")
@@ -316,6 +340,9 @@ def main():
         sx, sy, gx, gy = int(ax // 1), int(ay // 1), int(bx // 1), int(by // 1)
         m = a.margin
         g = Grid.load(b, min(sx, gx) - m, min(sy, gy) - m, max(sx, gx) + m + 1, max(sy, gy) + m + 1)
+        for path in a.reserve:
+            if os.path.exists(path):
+                g.block(json.load(open(path, encoding="utf-8")))
         places = route(g, (sx, sy), (gx, gy), a.from_dir, a.to_dir)
         if not places:
             print("no route (try a larger --margin or other end tiles)")
@@ -326,6 +353,9 @@ def main():
         print("\n".join(segments(places)))
         if a.json:
             print(json.dumps(places, separators=(",", ":")))
+        if a.save:
+            old = json.load(open(a.save, encoding="utf-8")) if os.path.exists(a.save) else []
+            json.dump(old + places, open(a.save, "w", encoding="utf-8"))
     elif a.cmd == "site":
         nx, ny = _xy(a.near)
         R = int(a.radius) + max(a.w, a.h)
@@ -336,6 +366,26 @@ def main():
         else:
             d, x, y, cx, cy = best
             print(f"free {a.w}x{a.h}: top-left {x},{y}  centre {cx:g},{cy:g}  (distance {d:g})")
+    elif a.cmd == "block":
+        import plan_block
+        spec = json.load(open(a.spec, encoding="utf-8"))
+        res = plan_block.compile_block(spec, plan_block.recipes_from_game(b, RECIPE_LUA))
+        for e in res["errors"]:
+            print("ERROR", e)
+        for n in res["notes"]:
+            print("note ", n)
+        groups = {}
+        for p in res["places"]:
+            groups.setdefault(p["group"], []).append(p)
+        for gname, ps in groups.items():
+            print(f"[{gname}] {len(ps)}: " + "; ".join(
+                f"{p['item'].replace('transport-belt','belt')} {p['x']:g},{p['y']:g}"
+                + (f" {p['direction']}" if p.get("direction") else "") + (f" {p['recipe']}" if p.get("recipe") else "")
+                + (f" ({p['why']})" if p.get("why") else "") for p in ps[:60]))
+        print(f"pole groups (wire reach 7.5): {len(res['pole_components'])}")
+        print("map check:", plan_block.check_on_map(b, [p for p in res["places"]]))
+        if a.json:
+            print(json.dumps(res["places"], separators=(",", ":")))
     elif a.cmd == "grid":
         (ax, ay), (bx, by) = _xy(a.a), _xy(a.b)
         g = Grid.load(b, ax, ay, bx, by)

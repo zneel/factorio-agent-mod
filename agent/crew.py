@@ -601,7 +601,7 @@ def vet_job(b, brief, place=None):
             bad.append(f"{p.get('item')} {p['x']},{p['y']}: {e}")
             continue
         blockers = _list_of(r.get("blockers"))
-        natural = blockers and all(any(k in str(n) for k in ("tree", "rock")) for n in blockers)
+        natural = blockers and all(any(k in str(n) for k in ("tree", "rock", "wreck")) for n in blockers)
         if not r.get("ok") and not r.get("upgrade_possible") and not natural:  # trees/rocks: the worker mines them
             bad.append(f"{p.get('item')} {p['x']},{p['y']} blocked by {','.join(_list_of(r.get('blockers'))) or 'terrain/water'}")
     if bad:

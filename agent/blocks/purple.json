@@ -1,0 +1,241 @@
+{
+ "name": "purple science block (1 production-science AM2, 6.4 packs/min)",
+ "machines": [
+  {
+   "id": "C1",
+   "recipe": "copper-cable",
+   "x": -18.5,
+   "y": -13.5
+  },
+  {
+   "id": "G1",
+   "recipe": "electronic-circuit",
+   "x": -14.5,
+   "y": -13.5
+  },
+  {
+   "id": "C2",
+   "recipe": "copper-cable",
+   "x": -10.5,
+   "y": -13.5
+  },
+  {
+   "id": "G2",
+   "recipe": "electronic-circuit",
+   "x": -6.5,
+   "y": -13.5
+  },
+  {
+   "id": "A1",
+   "recipe": "advanced-circuit",
+   "x": -16.5,
+   "y": -17.5
+  },
+  {
+   "id": "A2",
+   "recipe": "advanced-circuit",
+   "x": -12.5,
+   "y": -17.5
+  },
+  {
+   "id": "A3",
+   "recipe": "advanced-circuit",
+   "x": -8.5,
+   "y": -17.5
+  },
+  {
+   "id": "M",
+   "recipe": "productivity-module",
+   "x": -4.5,
+   "y": -17.5
+  },
+  {
+   "id": "S",
+   "recipe": "iron-stick",
+   "x": -18.5,
+   "y": -24.5
+  },
+  {
+   "id": "R",
+   "recipe": "rail",
+   "x": -14.5,
+   "y": -24.5
+  },
+  {
+   "id": "P",
+   "recipe": "production-science-pack",
+   "x": -10.5,
+   "y": -24.5
+  },
+  {
+   "id": "E",
+   "recipe": "electric-furnace",
+   "x": -6.5,
+   "y": -24.5
+  },
+  {
+   "id": "F",
+   "recipe": "stone-brick",
+   "x": -2.5,
+   "y": -24.5,
+   "entity": "electric-furnace"
+  }
+ ],
+ "belts": [
+  {
+   "id": "BUS",
+   "y": -10.5,
+   "x1": 3.5,
+   "x2": -21.5,
+   "dir": "west",
+   "lanes": {
+    "north": "copper-plate",
+    "south": "iron-plate"
+   }
+  },
+  {
+   "id": "T1",
+   "y": -20.5,
+   "x1": 3.5,
+   "x2": -20.5,
+   "dir": "west",
+   "lanes": {
+    "north": "advanced-circuit",
+    "south": "steel-plate"
+   }
+  },
+  {
+   "id": "T2",
+   "y": -21.5,
+   "x1": 6.5,
+   "x2": -20.5,
+   "dir": "west",
+   "lanes": {
+    "north": "productivity-module",
+    "south": "plastic-bar"
+   }
+  },
+  {
+   "id": "U1",
+   "y": -27.5,
+   "x1": -21.5,
+   "x2": 3.5,
+   "dir": "east",
+   "lanes": {
+    "north": "iron-plate",
+    "south": "copper-plate"
+   }
+  },
+  {
+   "id": "U2",
+   "y": -28.5,
+   "x1": 6.5,
+   "x2": -20.5,
+   "dir": "west",
+   "lanes": {
+    "north": "production-science-pack",
+    "south": "stone"
+   }
+  }
+ ],
+ "outputs": {
+  "A1": "T1",
+  "A2": "T1",
+  "A3": "T1",
+  "M": "T2",
+  "P": "U2"
+ },
+ "extra_belts": [
+  {
+   "x": -22.5,
+   "y": -10.5,
+   "dir": "north"
+  },
+  {
+   "x": -22.5,
+   "y": -11.5,
+   "dir": "north"
+  },
+  {
+   "x": -22.5,
+   "y": -12.5,
+   "dir": "north"
+  },
+  {
+   "x": -22.5,
+   "y": -13.5,
+   "dir": "north"
+  },
+  {
+   "x": -22.5,
+   "y": -14.5,
+   "dir": "north"
+  },
+  {
+   "x": -22.5,
+   "y": -15.5,
+   "dir": "north"
+  },
+  {
+   "x": -22.5,
+   "y": -16.5,
+   "dir": "north"
+  },
+  {
+   "x": -22.5,
+   "y": -17.5,
+   "dir": "north"
+  },
+  {
+   "x": -22.5,
+   "y": -18.5,
+   "dir": "north"
+  },
+  {
+   "x": -22.5,
+   "y": -19.5,
+   "dir": "north"
+  },
+  {
+   "x": -22.5,
+   "y": -20.5,
+   "dir": "north"
+  },
+  {
+   "x": -22.5,
+   "y": -21.5,
+   "dir": "north"
+  },
+  {
+   "x": -22.5,
+   "y": -22.5,
+   "dir": "north"
+  },
+  {
+   "x": -22.5,
+   "y": -23.5,
+   "dir": "north"
+  },
+  {
+   "x": -22.5,
+   "y": -24.5,
+   "dir": "north"
+  },
+  {
+   "x": -22.5,
+   "y": -25.5,
+   "dir": "north"
+  },
+  {
+   "x": -22.5,
+   "y": -26.5,
+   "dir": "north"
+  },
+  {
+   "x": -22.5,
+   "y": -27.5,
+   "dir": "east"
+  }
+ ],
+ "notes": "BUS loops at its west end up x=-22.5 and becomes U1 flowing east: after two right turns iron is on U1's north lane, copper on its south lane (stationary). T2 and U2 heads sit at x=5.5 with a stub at 6.5, so plastic and stone side-load from the south onto their south lanes."
+}
