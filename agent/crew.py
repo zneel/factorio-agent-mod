@@ -473,7 +473,7 @@ def audit(b):
 
 import re
 
-ACCEPT_KINDS = {"working", "status", "entity", "has", "belt", "drop", "recipe", "count"}
+ACCEPT_KINDS = {"working", "status", "entity", "has", "belt", "drop", "recipe", "count", "empty"}
 _NOT_MAIN = ("transport-belt", "underground-belt", "splitter", "electric-pole")
 
 
@@ -534,6 +534,9 @@ def eval_clause(b, c):
         return _cmp(v, op, n), f"{item} total {v}"
     ents = [e for e in _list_of(_dict_of(b.call("probe", x=xy[0], y=xy[1])).get("entities"))
             if e.get("type") != "item-entity"]  # items lying on the ground are never what a check means
+    if k == "empty":  # nothing built on the tile (items on the ground, trees and rocks do not count)
+        built = [e for e in ents if e.get("type") not in ("tree", "simple-entity", "resource", "character")]
+        return not built, "empty" if not built else "found " + ",".join(e["name"] for e in built)
     if not ents:
         return False, "nothing there"
     main = next((e for e in ents if e.get("type") not in _NOT_MAIN), ents[0])

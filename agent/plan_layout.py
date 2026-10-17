@@ -13,9 +13,11 @@ Constraints
   lanes        one item per lane; a lane holding an item made here must be fed by one of its producers;
                input bundles (two items on one belt, as they arrive) keep their left/right pairing; a bundle
                may run on a second belt the other way (a U-turn loop at the block's end, like block X B2 -> B5)
-  flow         a producer feeding a lane is upstream (per the belt's direction) of every machine reading it
+  flow         every machine reading a lane has at least one of that lane's producers upstream of it
                (the purple-block T1 bug: circuits made downstream of their consumers)
   inserters    at most 3 per machine side (belt reads + outputs)
+  repair       "pinned_belts" [{j, id, dir, lanes, x1, x2, cols}] keep built belts; machines may be "pin"ned
+               [row, col] or carry "was" [row, col] (moving one costs more than anything else)
   fluids       machines with a fluid ingredient/product sit at a row end, ports facing out (pipes come from outside);
                a machine's "end": "west"/"east" picks the end (the side its pipe arrives from)
 Objective   fewest belts, then fewest long-handed reads, then narrowest.
@@ -41,7 +43,7 @@ def solve(spec, recipes, seconds=30.0):
     fluid = {m["id"]: any(i in FLUIDS for i, _ in recipes[m["recipe"]][0] + recipes[m["recipe"]][1]) for m in ms}
     made = {out[k] for k in ids if out[k] not in FLUIDS}
     import plan_rules
-    LONG_CAP = 1.15  # long-handed inserter, items/s; anything faster must use a (fast) normal inserter
+    LONG_CAP = 1.15 * 1.05  # long-handed inserter items/s (+5%: a target is an estimate); faster -> normal inserter
     crafts = {k: plan_rules.MACHINE_SPEED.get(ms_by[k].get("entity", "assembling-machine-2"), 0.75)
               / max(recipes[ms_by[k]["recipe"]][2], 1e-9) for k in ids}  # full speed ...
     if spec.get("target"):  # ... or what the block's target output needs (spec "target": {item: per s})
@@ -50,7 +52,9 @@ def solve(spec, recipes, seconds=30.0):
     rate_in = {(k, i): n * crafts[k] for k in ids for i, n in recipes[ms_by[k]["recipe"]][0]}
     rate_out = {k: recipes[ms_by[k]["recipe"]][1][0][1] * crafts[k] for k in ids}
     bundles = spec.get("inputs", [])
+    pinned = {pb["j"]: pb for pb in spec.get("pinned_belts", [])}  # repair mode: belts already built
     ext = {it for bd in bundles for it in (bd.get("left"), bd.get("right")) if it}
+    ext |= {it for pb in pinned.values() for it in pb["lanes"].values() if it and it not in made}
     items = sorted(made | ext | {i for k in ids for i in ing[k]})
     exports = set(spec.get("exports", []))
     missing = {i for k in ids for i in ing[k]} - made - ext
@@ -69,6 +73,13 @@ def solve(spec, recipes, seconds=30.0):
     for j in range(NB):
         for l in (0, 1):
             md.AddAtMostOne(L[j, l, i] for i in items)
+    for j, pb in pinned.items():  # built belts keep their direction and lane items
+        md.Add(east[j] == (1 if pb["dir"] == "east" else 0))
+        for l, nm in ((0, "north"), (1, "south")):
+            if pb["lanes"].get(nm):
+                md.Add(L[j, l, pb["lanes"][nm]] == 1)
+            elif pb.get("closed", True):
+                md.Add(sum(L[j, l, i] for i in items) == 0)
     used = {j: md.NewBoolVar(f"used_{j}") for j in range(NB)}
     for j in range(NB):
         for l in (0, 1):
@@ -188,20 +199,54 @@ def solve(spec, recipes, seconds=30.0):
         loops.append(sum(lits) - 1)
     for j in range(NB):
         md.AddAtMostOne(bp[bi, j] for bi in range(len(bundles)))
-        for i in ext:  # an external item on a lane means a bundle brought it there
+        for i in ext:  # an external item on a lane means a bundle (or a built belt) brought it there
             for l in (0, 1):
+                if j in pinned and pinned[j]["lanes"].get(("north", "south")[l]) == i:
+                    continue
                 md.AddBoolOr([bp[bi, j] for bi, bd in enumerate(bundles) if i in (bd.get("left"), bd.get("right"))]
                              ).OnlyEnforceIf(L[j, l, i])
-    # flow: every producer onto a lane is upstream of every reader of that lane
+    # a built belt only spans some columns: machines using it must stand within them
+    for j, pb in pinned.items():
+        c0, c1 = pb.get("cols", [0, C - 1])
+        for k in ids:
+            lits = [rd[k, j, True], rd[k, j, False]]
+            if (k, j) in oN:
+                lits += [oN[k, j], oS[k, j]]
+            for lit in lits:
+                md.Add(col[k] >= c0).OnlyEnforceIf(lit)
+                md.Add(col[k] <= c1).OnlyEnforceIf(lit)
+    for r_, c_ in spec.get("blocked_slots", []):  # slots taken by something else (pipes, poles)
+        for k in ids:
+            md.Add(slot[k] != r_ * C + c_)
+    # pinned machines (e.g. piped ones) stay; machines with "was" pay for moving
+    moves = []
+    for k in ids:
+        m = ms_by[k]
+        if m.get("pin"):
+            md.Add(row[k] == m["pin"][0])
+            md.Add(col[k] == m["pin"][1])
+        if m.get("was"):
+            mv = md.NewBoolVar(f"move_{k}")
+            same = md.NewBoolVar("")
+            md.Add(slot[k] == m["was"][0] * C + m["was"][1]).OnlyEnforceIf(same)
+            md.Add(slot[k] != m["was"][0] * C + m["was"][1]).OnlyEnforceIf(same.Not())
+            md.Add(mv == 1 - same)
+            moves.append(mv)
+    # flow: a machine reading a lane of a made item has at least one producer of that lane upstream of it
     for (k, i, j, l), uv in u.items():
         if i not in made:
             continue
+        ws = []
         for p in ids:
-            if out[p] != i:
+            if out[p] != i or p == k:
                 continue
             o = (oN if l == 0 else oS)[p, j]
-            md.Add(col[p] <= col[k]).OnlyEnforceIf([o, uv, east[j]])
-            md.Add(col[p] >= col[k]).OnlyEnforceIf([o, uv, east[j].Not()])
+            w = md.NewBoolVar("")
+            md.AddImplication(w, o)
+            md.Add(col[p] <= col[k]).OnlyEnforceIf([w, east[j]])
+            md.Add(col[p] >= col[k]).OnlyEnforceIf([w, east[j].Not()])
+            ws.append(w)
+        md.AddBoolOr(ws).OnlyEnforceIf(uv)
     # inserters per side <= 3
     for k in ids:
         for above in (True, False):
@@ -209,7 +254,7 @@ def solve(spec, recipes, seconds=30.0):
             md.Add(sum(rd[k, j, above] for j in range(NB)) + sum(outs) <= 3)
     # fluid machines at a row end
     for k in ids:
-        if fluid[k]:
+        if fluid[k] and not ms_by[k].get("pin") and not ms_by[k].get("ptg"):  # "ptg": acid via pipe-to-ground
             e0, e1 = md.NewBoolVar(""), md.NewBoolVar("")
             md.Add(col[k] == 0).OnlyEnforceIf(e0)
             md.Add(col[k] == C - 1).OnlyEnforceIf(e1)
@@ -219,7 +264,7 @@ def solve(spec, recipes, seconds=30.0):
                 md.AddBoolOr([e0 if side == "west" else e1])
     width = md.NewIntVar(0, C - 1, "width")
     md.AddMaxEquality(width, list(col.values()))
-    md.Minimize(60 * sum(loops) + 100 * sum(used.values()) + 10 * sum(longs) + 5 * width +
+    md.Minimize(200 * sum(moves) + 60 * sum(loops) + 100 * sum(used.values()) + 10 * sum(longs) + 5 * width +
                 sum(L.values()) + sum(rd.values()))
     sv = cp_model.CpSolver()
     sv.parameters.max_time_in_seconds = seconds
@@ -239,10 +284,13 @@ def _to_block(spec, sv, row, col, L, east, used, items, ids, fluid, R, C, NB, oN
         m = {"id": k, "recipe": ms[k]["recipe"], "x": x0 + 4 * c, "y": y0 + 4 + 7 * r}
         if ms[k].get("entity"):
             m["entity"] = ms[k]["entity"]
-        if fluid[k]:
+        if ms[k].get("direction"):
+            m["direction"] = ms[k]["direction"]
+        elif fluid[k]:
             m["direction"] = "west" if c == 0 else "east"
         machines.append(m)
     belts = []
+    spec_pinned = {pb["j"]: pb for pb in spec.get("pinned_belts", [])}
     yb = lambda j: y0 + 7 * (j // 2) + (j % 2)  # noqa: E731
     xa, xb = x0 - 2, x0 + 4 * (C - 1) + 2
     for j in range(NB):
@@ -252,12 +300,18 @@ def _to_block(spec, sv, row, col, L, east, used, items, ids, fluid, R, C, NB, oN
         for l, nm in ((0, "north"), (1, "south")):
             lanes[nm] = next((i for i in items if sv.Value(L[j, l, i])), None)
         e = sv.Value(east[j])
+        pb = spec_pinned.get(j)
+        if pb:
+            belts.append({"id": pb.get("id", f"K{j}"), "y": yb(j), "x1": pb["x1"], "x2": pb["x2"], "dir": pb["dir"],
+                          "lanes": lanes, "build": False})
+            continue
         belts.append({"id": f"K{j}", "y": yb(j), "x1": xa if e else xb, "x2": xb if e else xa,
                       "dir": "east" if e else "west", "lanes": lanes})
+    names = {j: spec_pinned[j].get("id", f"K{j}") if j in spec_pinned else f"K{j}" for j in range(NB)}
     for k in ids:
         for j in range(NB):
             if (k, j) in oN and (sv.Value(oN[k, j]) or sv.Value(oS[k, j])):
-                outputs[k] = f"K{j}"
+                outputs[k] = names[j]
     return {"name": spec.get("name", "layout"), "machines": machines, "belts": belts, "outputs": outputs,
             "target": spec.get("target")}
 

@@ -1,0 +1,228 @@
+{
+ "name": "rocket block X repair",
+ "origin": [
+  -19.5,
+  48.5
+ ],
+ "rows": 2,
+ "cols": 10,
+ "pinned_belts": [
+  {
+   "j": 0,
+   "id": "B1",
+   "dir": "west",
+   "lanes": {
+    "north": "sulfur",
+    "south": "plastic-bar"
+   },
+   "x1": 20.5,
+   "x2": -21.5,
+   "cols": [
+    0,
+    9
+   ]
+  },
+  {
+   "j": 1,
+   "id": "B2",
+   "dir": "west",
+   "lanes": {
+    "north": "iron-plate",
+    "south": "copper-plate"
+   },
+   "x1": 22.5,
+   "x2": -21.5,
+   "cols": [
+    0,
+    9
+   ]
+  },
+  {
+   "j": 2,
+   "id": "B3",
+   "dir": "east",
+   "lanes": {
+    "north": "low-density-structure",
+    "south": "steel-plate"
+   },
+   "x1": -21.5,
+   "x2": 20.5,
+   "cols": [
+    0,
+    9
+   ]
+  },
+  {
+   "j": 3,
+   "id": "B4",
+   "dir": "east",
+   "lanes": {
+    "north": "processing-unit",
+    "south": "copper-cable"
+   },
+   "x1": -21.5,
+   "x2": 20.5,
+   "cols": [
+    0,
+    9
+   ]
+  },
+  {
+   "j": 4,
+   "id": "B5",
+   "dir": "east",
+   "lanes": {
+    "north": "copper-plate",
+    "south": "iron-plate"
+   },
+   "x1": -21.5,
+   "x2": 10.5,
+   "cols": [
+    0,
+    7
+   ]
+  },
+  {
+   "j": 5,
+   "id": "B6",
+   "dir": "east",
+   "lanes": {
+    "north": "plastic-bar",
+    "south": "sulfur"
+   },
+   "x1": -21.5,
+   "x2": 10.5,
+   "cols": [
+    0,
+    7
+   ]
+  }
+ ],
+ "machines": [
+  {
+   "id": "ACID",
+   "recipe": "sulfuric-acid",
+   "entity": "chemical-plant",
+   "pin": [
+    0,
+    0
+   ],
+   "direction": "west"
+  },
+  {
+   "id": "C1",
+   "recipe": "copper-cable",
+   "was": [
+    0,
+    2
+   ]
+  },
+  {
+   "id": "C2",
+   "recipe": "copper-cable",
+   "was": [
+    0,
+    3
+   ]
+  },
+  {
+   "id": "C3",
+   "recipe": "copper-cable",
+   "was": [
+    0,
+    4
+   ]
+  },
+  {
+   "id": "C4",
+   "recipe": "copper-cable",
+   "was": [
+    0,
+    5
+   ]
+  },
+  {
+   "id": "SF1",
+   "recipe": "steel-plate",
+   "was": [
+    0,
+    6
+   ],
+   "entity": "electric-furnace"
+  },
+  {
+   "id": "SF2",
+   "recipe": "steel-plate",
+   "was": [
+    0,
+    7
+   ],
+   "entity": "electric-furnace"
+  },
+  {
+   "id": "G1",
+   "recipe": "electronic-circuit",
+   "was": [
+    1,
+    0
+   ]
+  },
+  {
+   "id": "PU",
+   "recipe": "processing-unit",
+   "was": [
+    1,
+    1
+   ],
+   "ptg": true
+  },
+  {
+   "id": "R",
+   "recipe": "advanced-circuit",
+   "was": [
+    1,
+    2
+   ]
+  },
+  {
+   "id": "G2",
+   "recipe": "electronic-circuit",
+   "was": [
+    1,
+    3
+   ]
+  },
+  {
+   "id": "LDS1",
+   "recipe": "low-density-structure",
+   "was": [
+    1,
+    4
+   ]
+  },
+  {
+   "id": "LDS2",
+   "recipe": "low-density-structure",
+   "was": [
+    1,
+    5
+   ]
+  }
+ ],
+ "inputs": [],
+ "exports": [
+  "processing-unit",
+  "low-density-structure",
+  "steel-plate"
+ ],
+ "target": {
+  "processing-unit": 0.058333333333333334,
+  "low-density-structure": 0.09166666666666666
+ },
+ "blocked_slots": [
+  [
+   0,
+   1
+  ]
+ ]
+}

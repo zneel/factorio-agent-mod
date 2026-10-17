@@ -37,6 +37,7 @@
     working X,Y                 machine reports working
     status X,Y S                exact status (full_output, no_input_fluid, ...)
     entity X,Y NAME             that entity is on the tile
+    empty X,Y                   nothing is built on the tile (for removal jobs)
     recipe X,Y R                assembler runs that recipe
     has X,Y ITEM >= N           items inside the entity (chest, machine, belt), ops >= <= > < ==
     belt X,Y ITEM               the belt there carries ITEM now
