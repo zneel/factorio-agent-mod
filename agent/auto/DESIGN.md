@@ -27,6 +27,11 @@ hand-picked coordinate, so it works on any seed.
 
 ## Growth controller (`grow.py`, GROWTH_PROMPT.md)
 
+Code: `grow.py` (main: setup, then one round after another), `growth/` (core: Plan, Live, materialize;
+chooser: the repair rules and the schedule's next group, in order; gate: building and the material gate;
+mall, sensors, world, scouting, upkeep; context: the controller's state; setup, rounds) and `repairs/` (one
+handler per kind of increment, sharing common.py's gate -> build -> look -> done steps).
+
 The plan above is the *space plan*; `python -m auto.grow <seed> [--scratch]` decides what to build when, one
 complete increment at a time, from measurements of the running game:
 
@@ -65,5 +70,5 @@ the controller follows it, re-solving in a thread whenever a group is finished o
 - Infeasible: every constraint family has an assumption literal; the model is re-solved minimising the dropped
   families, which names the cycle (e.g. "tech advanced-oil-processing after a maker of chemical-science-pack" when
   refineries had no basic-oil stand-in), and the relaxed schedule still orders the work.
-What stays hand-written in `grow.choose` are the repairs driven by measurements (pieces gone, half-built groups, dry
+What stays hand-written in `growth.chooser` (its RULES) are the repairs driven by measurements (pieces gone, half-built groups, dry
 mines, gaps, links, unpowered machines, jams); the sequencing itself is the solver's.

@@ -325,5 +325,28 @@ class LayoutSpan(unittest.TestCase):
                 self.assertTrue(lo_x <= end <= hi_x, f"input belt runs past its readers: {b} machines at {xs}")
 
 
+
+class Dispatch(unittest.TestCase):
+    """main() hands what choose() names to one handler per kind (auto.repairs); the rules keep their order."""
+
+    def test_handlers(self):
+        from auto import repairs
+        r = repairs
+        for g, mod in (("relocate:mine:coal:0", r.relocate), ("outpower:2", r.outpower), ("trim", r.trim),
+                       ("face", r.face), ("radar:1.5,2.5", r.radar), ("outpost:crude-oil", r.outpost),
+                       ("remine:mine:coal:1", r.remine), ("flush:smelt:iron-ore:0", r.flush), ("drain:1.5,2.5", r.drain),
+                       ("spent:B13", r.spent), ("pairs", r.pairs), ("unstick", r.unstick), ("burner:stone", r.burner),
+                       ("B1", r.increment), ("restore", r.increment), ("link:labs", r.increment),
+                       ("finish:pipe:crude", r.increment), ("trimmed", r.increment), ("pairs_fix", r.increment)):
+            self.assertIs(repairs.handler(g), mod, g)
+
+    def test_rule_order(self):
+        from auto.growth import chooser
+        self.assertEqual([f.__name__ for f in chooser.RULES],
+                         ["restore", "pending", "repair", "burner", "rears", "relocate", "remine", "pairs", "reconnect",
+                          "fuel", "gap", "link", "finish", "trim", "repower", "flush", "drain", "spent", "unstick",
+                          "face", "upgrade", "outpower", "scout", "schedule"])
+
+
 if __name__ == "__main__":
     unittest.main()

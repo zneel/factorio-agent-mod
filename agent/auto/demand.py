@@ -41,7 +41,7 @@ BAN = ("coal-liquefaction", "kovarex", "uranium", "nuclear", "barrel", "empty-",
 ROCKET_PARTS = 100
 ROCKET_HOURS = 2.0     # rocket phase (silo researched -> launch); seed 1060: the knee of machines vs hours (0.75 h 301, 1 h 242,
 #                        1.5 h 185, 2 h 174, 3 h 169 machines)
-CARGO = {"satellite"}     # the rocket's cargo: made into a mall chest, put into the silo at launch (grow.LAUNCH_LUA)
+CARGO = {"satellite"}     # the rocket's cargo: made into a mall chest, put into the silo at launch (auto.growth.upkeep.LAUNCH_LUA)
 ONE_OFF = {"rocket-silo"}   # placed once: no build margin (the mall makes exactly what the plan places)
 # crude: a well yields amount / 30000 crude/s (300000 = 100% = 10/s); each pumping cycle takes 10 off its amount, so
 # amount decays as exp(-t / WELL_TAU_S) while pumped, down to the floor (20% of 300000)
