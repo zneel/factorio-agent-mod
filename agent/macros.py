@@ -4,6 +4,8 @@ Each macro does in one tool call what would otherwise take the agent many round 
 round trip re-sends the whole conversation), and returns a one-line summary.
 """
 
+import time
+
 from bridge import BridgeError
 
 BURNER_TYPES = ("mining-drill", "furnace", "boiler", "inserter")
@@ -162,7 +164,31 @@ def _near(b, pos, target, reach=8.0):
         return pos
     t = b.run("move_to", x=target[0], y=target[1], radius=3, timeout=180)
     if t.get("state") != "done":
-        raise BridgeError(f"can't walk to {target}: {t.get('error')}")
+        # the target sits inside a dense build: any reachable spot within reach will do (approach side first)
+        err = t.get("error")
+        dx, dy = pos["x"] - target[0], pos["y"] - target[1]
+        n = max(1e-6, (dx * dx + dy * dy) ** 0.5)
+        spots = [(target[0] + dx / n * r, target[1] + dy / n * r) for r in (5, 7)]
+        spots += [(target[0] + ox, target[1] + oy) for ox, oy in ((6, 0), (-6, 0), (0, 6), (0, -6), (5, 5), (-5, 5),
+                                                                  (5, -5), (-5, -5))]
+        for sx, sy in spots:
+            t = b.run("move_to", x=sx, y=sy, radius=2, timeout=120)
+            if t.get("state") == "done":
+                return t["result"]["position"]
+        # walled in by its own building: pick up what stands next to it, toward the target, and walk out (the
+        # build loop puts it back later, it is still in the plan)
+        me = b.call("state")["agent"]["position"]
+        sx = 1 if target[0] > me["x"] else -1
+        sy = 1 if target[1] > me["y"] else -1
+        for ox, oy in ((sx * 1.5, 0), (0, sy * 1.5), (-sx * 1.5, 0), (0, -sy * 1.5)):
+            try:
+                b.run("mine", x=me["x"] + ox, y=me["y"] + oy, timeout=60)
+            except BridgeError:
+                continue
+            t = b.run("move_to", x=target[0], y=target[1], radius=3, timeout=180)
+            if t.get("state") == "done":
+                return t["result"]["position"]
+        raise BridgeError(f"can't walk to {target}: {err}")
     return t["result"]["position"]
 
 
@@ -178,6 +204,12 @@ def _try_place(b, item, x, y, direction, nudge=0, **extra):
             last = e
             if "no " + item in str(e) or "unknown item" in str(e):
                 raise
+            if "blocked by character" in str(e) and (dx, dy) == (0, 0):   # standing on the spot: step off, retry
+                try:
+                    b.run("move_to", x=x + 4, y=y + 4, radius=2, timeout=60)
+                    return b.call("place", item=item, x=x, y=y, direction=direction, **extra)
+                except BridgeError as e2:
+                    last = e2
     raise last
 
 
@@ -268,3 +300,132 @@ def compact_state(s):
     if not s.get("unread_chat"):
         s.pop("unread_chat", None)
     return s
+
+
+def _plan_list(plan):
+    """A placement plan: a JSON file path (list, or {"place": [...]}) or the list itself."""
+    import json
+    if isinstance(plan, str):
+        from pathlib import Path
+        p = Path(plan)
+        if not p.is_absolute():
+            p = Path(__file__).resolve().parent.parent / plan
+        plan = json.loads(p.read_text())
+    if isinstance(plan, dict):
+        plan = plan.get("place", [])
+    return plan
+
+
+OPP = {"north": "south", "south": "north", "east": "west", "west": "east"}
+# hand-crafting is for the burner bootstrap only (GROWTH_PROMPT rule 2); the growth controller turns it off once
+# the mall makes the building materials. Small poles need wood, which only characters get: always hand-made.
+HANDCRAFT = True
+ALWAYS_HAND = {"small-electric-pole"}
+SYMMETRIC = {"steam-engine", "pipe", "small-electric-pole", "medium-electric-pole", "lab", "storage-tank"}
+
+
+def game_dir(p):
+    """Plans say direction = where items go; an inserter's engine direction names its pickup side."""
+    d = p.get("direction", "north")
+    return OPP[d] if "inserter" in p["item"] else d
+
+
+def build(b, plan, dry=False, mine_obstacles=True):
+    """Build every entry of a placement plan [{item,x,y,direction,belt_type?,recipe?}] in file order,
+    walking as needed. Idempotent: an entry whose entity already stands there (same name and
+    direction) is skipped, so a worker can rerun it after fetching more items. Trees and rocks on a
+    tile are mined first. Missing items are crafted when the character has the ingredients;
+    otherwise the build stops and reports what is still needed in total."""
+    items = _plan_list(plan)
+    st = b.call("state")["agent"]
+    inv = dict(st.get("inventory") or {})
+    pos = st["position"]
+    todo, skipped, conflicts = [], 0, []
+    pending_removals = 0
+    for p in [q for q in items if q.get("remove")]:  # removals first: {"remove": true, "item", "x", "y"}
+        ents = b.call("probe", x=p["x"], y=p["y"]).get("entities") or []
+        present = any(e["name"] == p["item"] for e in ents)
+        pending_removals += present and dry
+        if present and not dry:
+            try:
+                b.run("mine", x=p["x"], y=p["y"], timeout=120)
+            except BridgeError as e:
+                conflicts.append(f"remove {p['item']} {p['x']},{p['y']}: {str(e)[:60]}")
+    items = [q for q in items if not q.get("remove")]
+    if not dry:
+        pos = b.call("state")["agent"]["position"]  # removals walk the character
+    for p in items:
+        ents = b.call("probe", x=p["x"], y=p["y"]).get("entities") or []
+        same = [e for e in ents if e["name"] == p["item"] and abs(e["pos"]["x"] - p["x"]) < 0.01
+                and abs(e["pos"]["y"] - p["y"]) < 0.01 and (e.get("dir") in (None, game_dir(p))
+                                                            or p["item"] in ("stone-furnace", "steel-furnace")
+                                                            # symmetric: the game stores west as east, south as north
+                                                            or (p["item"] in SYMMETRIC and e.get("dir") == OPP[game_dir(p)]))]
+        if same:
+            skipped += 1
+            continue
+        todo.append(p)
+    need = collections_counter(p["item"] for p in todo)
+    short = {k: v - inv.get(k, 0) for k, v in need.items() if v > inv.get(k, 0)}
+    if dry:
+        return {"to_place": len(todo) + pending_removals, "already": skipped, "need": dict(need) or None,
+                "short": short or None, "removals": pending_removals or None}
+    placed, missing = 0, {}
+    for i, p in enumerate(todo):
+        it = p["item"]
+        if it in missing:
+            missing[it] += 1
+            continue
+        if inv.get(it, 0) < 1 and not (HANDCRAFT or it in ALWAYS_HAND):
+            missing[it] = missing.get(it, 0) + 1
+            continue
+        if inv.get(it, 0) < 1:
+            rest = sum(1 for q in todo[i:] if q["item"] == it)
+            try:
+                b.run("craft", recipe=it, count=rest, wait=True, timeout=600)
+            except BridgeError:
+                pass
+            for _ in range(120):  # the queue may still be crafting (intermediates first)
+                a = b.call("state")["agent"]
+                inv = dict(a.get("inventory") or {})
+                if inv.get(it, 0) >= 1 or not a.get("crafting_queue"):
+                    break
+                time.sleep(0.5)
+            if inv.get(it, 0) < 1:
+                missing[it] = missing.get(it, 0) + 1
+                continue
+        try:
+            pos = _near(b, pos, (p["x"], p["y"]))
+            extra = {"belt_type": p["belt_type"]} if p.get("belt_type") else {}
+            try:
+                try:
+                    b.call("place", item=it, x=p["x"], y=p["y"], direction=game_dir(p), **extra)
+                except BridgeError as e:
+                    if "move closer" not in str(e):
+                        raise
+                    pos = _near(b, {"x": 1e9, "y": 1e9}, (p["x"], p["y"]))  # position was stale: walk, retry
+                    b.call("place", item=it, x=p["x"], y=p["y"], direction=game_dir(p), **extra)
+            except BridgeError as e:
+                if not (mine_obstacles and any(w in str(e) for w in ("tree", "rock", "wreck", "boulder", "crash-site"))):
+                    raise
+                for blk in str(e).split("blocked by ", 1)[1].split(";")[0].split(", "):
+                    nm, xy = blk.split("@")
+                    if any(w in nm for w in ("tree", "rock", "boulder", "wreck", "crash-site")):
+                        bx, by = (float(v) for v in xy.split(","))
+                        b.run("mine", x=bx, y=by, timeout=300)
+                b.call("place", item=it, x=p["x"], y=p["y"], direction=game_dir(p), **extra)
+            inv[it] = inv.get(it, 0) - 1
+            if p.get("recipe"):
+                b.call("set_recipe", x=p["x"], y=p["y"], recipe=p["recipe"])
+            placed += 1
+        except BridgeError as e:
+            conflicts.append(f"{it} {p['x']},{p['y']}: {str(e)[:90]}")
+            if len(conflicts) >= 5:
+                break
+    return {"placed": placed, "already": skipped, "of": len(items), "failed": conflicts or None,
+            "short": missing or None}
+
+
+def collections_counter(it):
+    import collections
+    return collections.Counter(it)

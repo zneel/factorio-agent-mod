@@ -95,6 +95,8 @@ def _refuel(b, char, st):
 
 def _restock(b):
     """Queue hand-crafting for the first kanban part below its minimum (runs in the background)."""
+    if not _load("crew-config.json").get("kanban", True):
+        return None  # overseer switched kanban off (e.g. the burner phase needs every plate)
     a = b.call("state").get("agent") or {}
     if a.get("crafting_queue"):
         return None  # already crafting

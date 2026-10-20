@@ -40,7 +40,12 @@ def log(*a):
     print(*a, file=sys.stderr, flush=True)
 
 
+SCRATCH_RCON = {"host": "127.0.0.1", "port": 27115, "password": "scratchpw", "game_port": 34297}
+
+
 def rcon_settings() -> dict:
+    if os.environ.get("FA_TARGET") == "scratch":   # every tool (bridge, supply, bootstrap) on the scratch server
+        return SCRATCH_RCON
     if RCON_FILE.exists():
         return json.loads(RCON_FILE.read_text())
     s = {"host": "127.0.0.1", "port": 27015, "password": secrets.token_hex(12), "game_port": 34197}

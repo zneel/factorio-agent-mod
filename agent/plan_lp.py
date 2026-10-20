@@ -28,7 +28,7 @@ PACK_ITEM = {"red": "automation-science-pack", "green": "logistic-science-pack",
              "purple": "production-science-pack", "yellow": "utility-science-pack", "military": "military-science-pack"}
 
 
-def solve(recipes, demand, existing, ore_cap, raw_cap=None):
+def solve(recipes, demand, existing, ore_cap, raw_cap=None, exact=()):
     """recipes: name -> (cat, energy, ing, prod); demand: item -> per min; existing: recipe -> machines;
     ore_cap: ore -> per min. Returns dict with x, n, drills, duals."""
     raw_cap = raw_cap or {}
@@ -71,6 +71,13 @@ def solve(recipes, demand, existing, ore_cap, raw_cap=None):
         else:
             b.append(raw_cap.get(it, 1e9))           # crude, water: whatever the pumps give
         rows.append(row)
+    # exact items (fluids): no surplus either, a refinery stops when an output backs up
+    for it in exact:
+        if it in iid and it not in raws:
+            row = np.zeros(nv)
+            row[:R] = a[iid[it]]
+            rows.append(row)
+            b.append(demand.get(it, 0.0) + 1e-6)
     res = linprog(c, A_ub=np.array(rows), b_ub=np.array(b), bounds=[(0, None)] * nv, method="highs")
     if res.status != 0:
         raise SystemExit("LP: " + res.message)
@@ -110,3 +117,99 @@ def report(b, crew, hours=8.0, top=25):
     pr = sorted(((v, k) for k, v in sol["dual"].items() if v > 1e-4), reverse=True)[:8]
     out.append("shadow prices (new machines per +1 item/min): " + ", ".join(f"{k} {v:.3f}" for v, k in pr))
     return "\n".join(out)
+
+
+def solve_phases(recipes, phases, crude_yield=None, exact=(), speed=None):
+    """Multi-period LP (HiGHS): one factory, built once, runs through phases with different goals.
+
+    phases: [{"name", "hours", "goal": {item: total}, "ban": set of recipes not available in the phase}]
+    crude_yield: phase name -> crude/min one pumpjack gives in that phase (its well declines; None: unlimited crude)
+    Variables  x_pr crafts/min of recipe r in phase p     n_r machines of r (one count for all phases)
+               s_pi raw/min in phase p                    d_i drills of ore i      j pumpjacks
+    Constraints per phase p
+      balance   sum_r a_ir x_pr + s_pi >= goal_pi / (60 hours_p)
+      exact     sum_r a_ir x_pr <= goal_pi / (60 hours_p)   for the fluids: every output of a joint recipe needs an
+                                                            outlet in every phase (a refinery stops when one backs up)
+      machines  x_pr energy_r / (60 speed_r) <= n_r          -> n_r = max over phases
+      mining    s_pi <= 30 d_i (ores), s_p,crude <= yield_p j
+    Objective  sum n_r + sum d_i + j  (+ 1e-6 sum x)"""
+    from scipy.sparse import lil_matrix
+    speed = speed or SPEED
+    names = [r for r, v in recipes.items() if not any(k in r for k in SKIP) and v[0] in speed]
+    items = sorted({i for r in names for i, _ in recipes[r][2] + recipes[r][3]} |
+                   {i for ph in phases for i in ph["goal"]})
+    raws = [i for i in items if i in RAW]
+    ores = [i for i in raws if i in ("iron-ore", "copper-ore", "stone", "coal")]
+    R, I, K, P = len(names), len(items), len(raws), len(phases)
+    iid = {it: k for k, it in enumerate(items)}
+    rid = {r: j for j, r in enumerate(names)}
+    a = np.zeros((I, R))
+    for j, r in enumerate(names):
+        for it, n in recipes[r][2]:
+            a[iid[it], j] -= n
+        for it, n in recipes[r][3]:
+            a[iid[it], j] += n
+    X = lambda p, j: p * R + j                     # noqa: E731
+    N0 = P * R
+    S = lambda p, k: N0 + R + p * K + k            # noqa: E731
+    D0 = N0 + R + P * K
+    J = D0 + len(ores)
+    nv = J + 1
+    c = np.zeros(nv)
+    c[:N0] = 1e-6
+    c[N0:N0 + R] = 1
+    c[D0:D0 + len(ores)] = 1
+    c[J] = 1
+    A = lil_matrix((P * (2 * I + R + K), nv))
+    b, nrow = [], 0
+    bal_rows = []
+    for p, ph in enumerate(phases):
+        dem = {k: v / (60 * ph["hours"]) for k, v in ph["goal"].items()}
+        bal_rows.append(nrow)
+        for it, k in iid.items():                  # balance: -(a x) - s <= -demand
+            for j in np.nonzero(a[k])[0]:
+                A[nrow, X(p, j)] = -a[k, j]
+            if it in raws:
+                A[nrow, S(p, raws.index(it))] = -1
+            b.append(-dem.get(it, 0.0))
+            nrow += 1
+        for it in exact:                           # fluids: no surplus
+            if it in iid and it not in raws:
+                k = iid[it]
+                for j in np.nonzero(a[k])[0]:
+                    A[nrow, X(p, j)] = a[k, j]
+                b.append(dem.get(it, 0.0) + 1e-6)
+                nrow += 1
+        for j, r in enumerate(names):              # machines: m x_p - n <= 0
+            cat, energy = recipes[r][0], recipes[r][1]
+            A[nrow, X(p, j)] = energy / (60 * speed[cat])
+            A[nrow, N0 + j] = -1
+            b.append(0)
+            nrow += 1
+        for k, it in enumerate(raws):              # mining / pumping
+            A[nrow, S(p, k)] = 1
+            if it in ores:
+                A[nrow, D0 + ores.index(it)] = -30
+                b.append(0)
+            elif it == "crude-oil" and crude_yield:
+                A[nrow, J] = -crude_yield[ph["name"]]
+                b.append(0)
+            else:
+                b.append(1e9)                      # water: whatever the pumps give
+            nrow += 1
+    bounds = [(0, None)] * nv
+    for p, ph in enumerate(phases):                # recipes the phase cannot run (not researched yet)
+        for r in ph.get("ban", ()):
+            if r in rid:
+                bounds[X(p, rid[r])] = (0, 0)
+    res = linprog(c, A_ub=A[:nrow].tocsr(), b_ub=np.array(b), bounds=bounds, method="highs")
+    if res.status != 0:
+        raise SystemExit("LP: " + res.message)
+    v = res.x
+    out = {"recipes": names, "raws": raws, "n": v[N0:N0 + R], "pumpjacks": v[J],
+           "drills": {it: v[D0 + k] for k, it in enumerate(ores)}, "phases": []}
+    for p, ph in enumerate(phases):
+        duals = -res.ineqlin.marginals[bal_rows[p]:bal_rows[p] + I]
+        out["phases"].append({"x": v[p * R:(p + 1) * R], "s": np.array([v[S(p, k)] for k in range(K)]),
+                              "dual": dict(zip(items, duals))})
+    return out

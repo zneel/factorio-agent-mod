@@ -1,0 +1,79 @@
+{
+ "name": "blue science 9/min (AM2)",
+ "origin": [
+  -8.5,
+  -48.5
+ ],
+ "rows": 3,
+ "cols": 4,
+ "machines": [
+  {
+   "id": "CB",
+   "recipe": "copper-cable"
+  },
+  {
+   "id": "EC",
+   "recipe": "electronic-circuit"
+  },
+  {
+   "id": "AC1",
+   "recipe": "advanced-circuit"
+  },
+  {
+   "id": "AC2",
+   "recipe": "advanced-circuit"
+  },
+  {
+   "id": "GR",
+   "recipe": "iron-gear-wheel"
+  },
+  {
+   "id": "PI",
+   "recipe": "pipe"
+  },
+  {
+   "id": "EN1",
+   "recipe": "engine-unit"
+  },
+  {
+   "id": "EN2",
+   "recipe": "engine-unit"
+  },
+  {
+   "id": "B1",
+   "recipe": "chemical-science-pack"
+  },
+  {
+   "id": "B2",
+   "recipe": "chemical-science-pack"
+  },
+  {
+   "id": "B3",
+   "recipe": "chemical-science-pack"
+  }
+ ],
+ "inputs": [
+  {
+   "name": "IC",
+   "left": "iron-plate",
+   "right": "copper-plate"
+  },
+  {
+   "name": "SP",
+   "left": "steel-plate",
+   "right": "plastic-bar"
+  },
+  {
+   "name": "SU",
+   "left": "sulfur",
+   "right": null
+  }
+ ],
+ "exports": [
+  "chemical-science-pack"
+ ],
+ "target": {
+  "chemical-science-pack": 0.15
+ },
+ "clean_exports": true
+}

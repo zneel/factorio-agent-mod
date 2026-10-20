@@ -1,0 +1,86 @@
+{
+ "name": "red+green science 15/min each (AM1)",
+ "origin": [
+  -58.5,
+  -16.5
+ ],
+ "rows": 2,
+ "cols": 6,
+ "machines": [
+  {
+   "id": "GR",
+   "recipe": "iron-gear-wheel",
+   "entity": "assembling-machine-1"
+  },
+  {
+   "id": "GR2",
+   "recipe": "iron-gear-wheel",
+   "entity": "assembling-machine-1"
+  },
+  {
+   "id": "R1",
+   "recipe": "automation-science-pack",
+   "entity": "assembling-machine-1"
+  },
+  {
+   "id": "R2",
+   "recipe": "automation-science-pack",
+   "entity": "assembling-machine-1"
+  },
+  {
+   "id": "R3",
+   "recipe": "automation-science-pack",
+   "entity": "assembling-machine-1"
+  },
+  {
+   "id": "CB",
+   "recipe": "copper-cable",
+   "entity": "assembling-machine-1"
+  },
+  {
+   "id": "EC",
+   "recipe": "electronic-circuit",
+   "entity": "assembling-machine-1"
+  },
+  {
+   "id": "IN",
+   "recipe": "inserter",
+   "entity": "assembling-machine-1"
+  },
+  {
+   "id": "TB",
+   "recipe": "transport-belt",
+   "entity": "assembling-machine-1"
+  },
+  {
+   "id": "G1",
+   "recipe": "logistic-science-pack",
+   "entity": "assembling-machine-1"
+  },
+  {
+   "id": "G2",
+   "recipe": "logistic-science-pack",
+   "entity": "assembling-machine-1"
+  },
+  {
+   "id": "G3",
+   "recipe": "logistic-science-pack",
+   "entity": "assembling-machine-1"
+  }
+ ],
+ "inputs": [
+  {
+   "name": "BUS",
+   "left": "iron-plate",
+   "right": "copper-plate"
+  }
+ ],
+ "exports": [
+  "automation-science-pack",
+  "logistic-science-pack"
+ ],
+ "target": {
+  "automation-science-pack": 0.25,
+  "logistic-science-pack": 0.25
+ }
+}

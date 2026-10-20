@@ -5,6 +5,8 @@ kind 'b' = plain belt, 'u' = underground exit (it must continue straight). Edges
   plain  (x,y,din) -> (x+dx, y+dy, nd)           the belt on (x,y) points nd (never back against din)
   under  (x,y,din) -> (x+k*dx, y+k*dy, din, 'u')  entrance on (x,y) only when fed straight (nd == din),
                                                   exit 2..5 tiles ahead (yellow: up to 4 between)
+Weights are material in belt tiles: a surface tile costs 1 (1.5 iron plates), an underground pair its recipe
+(10 plates + 5 belts = 17.5 plates, about 11.7 tiles), so a route tunnels only when the detour costs more.
 Pipe state (x, y, din, kind) works the same way with pipe-to-ground hops up to 10; a pipe tile must not
 touch other networks (static, filtered out of the graph). A pipe must not touch its own earlier tiles
 either: that is path-dependent, so the route is checked after the search and the offending tiles are
@@ -14,9 +16,15 @@ import networkx as nx
 
 DIRS = {"north": (0, -1), "east": (1, 0), "south": (0, 1), "west": (-1, 0)}
 REV = {"north": "south", "south": "north", "east": "west", "west": "east"}
+BELT_PLATES = 1.5                    # a transport belt: (1 plate + 1 gear) / 2
+UG_PAIR_PLATES = 10 + 5 * BELT_PLATES   # two underground belts: 10 plates + 5 belts
+UG_W = UG_PAIR_PLATES / BELT_PLATES - 1  # the pair's edge weight; its entrance tile was paid as a belt on arrival
 
 
-def _belt_graph(g, start, goal, from_dir, to_dir, ug_gap=4):
+def _belt_graph(g, start, goal, from_dir, to_dir, ug_gap=4, spans=None):
+    """spans: {"v": tiles, "h": tiles} covered by existing underground pairs (ends included) along that axis;
+    a new underground may not run along them (the game would pair the wrong pieces)."""
+    spans = spans or {"v": set(), "h": set()}
     G = nx.DiGraph()
     sx, sy = start
     starts = [from_dir] if from_dir else list(DIRS)
@@ -45,17 +53,23 @@ def _belt_graph(g, start, goal, from_dir, to_dir, ug_gap=4):
                 G.add_edge(node, nxt, weight=w, kind="belt", out=nd)
                 todo.append(nxt)
             if nd == din and kind == "b":           # entrance only when fed straight
+                axis = "v" if dx == 0 else "h"
                 for k in range(2, ug_gap + 2):
                     ex, ey = x + dx * k, y + dy * k
+                    if (x + dx * (k - 1), y + dy * (k - 1)) in spans[axis] or (x, y) in spans[axis]:
+                        break
+                    if (ex, ey) in spans[axis]:
+                        break
                     if g.free(ex, ey):
                         nxt = (ex, ey, nd, "u")
-                        G.add_edge(node, nxt, weight=3 + k, kind="ug", out=nd)
+                        G.add_edge(node, nxt, weight=UG_W + 0.01 * k, kind="ug", out=nd)   # >= k: A* stays admissible
                         todo.append(nxt)
     return G
 
 
-def route_belt(g, start, goal, from_dir=None, to_dir=None):
-    G = _belt_graph(g, start, goal, from_dir, to_dir)
+def route_belt(g, start, goal, from_dir=None, to_dir=None, spans=None, ug_gap=4):
+    """ug_gap: most tiles an underground pair may cross (0 = surface only, e.g. while no underground is in stock)."""
+    G = _belt_graph(g, start, goal, from_dir, to_dir, ug_gap=ug_gap, spans=spans)
     if "G" not in G:
         return None
     gx, gy = goal
@@ -84,7 +98,9 @@ def route_belt(g, start, goal, from_dir=None, to_dir=None):
 
 
 def route_pipe(g, starts, goal, blocked=(), foreign=(), own=(), spans=None, goal_dir=None, ptg_gap=10, tries=6):
-    """starts: tiles to branch from (or one tile). Returns placements or None."""
+    """starts: tiles to branch from (or one tile). Returns placements or None. goal_dir "none": the route
+    ends on a plain pipe (it connects on every side; a pipe-to-ground exit facing away from a port connects nothing);
+    None (default): any piece may end on the goal."""
     spans = spans or {"v": set(), "h": set()}
     banned = set()
     starts = set(starts)
@@ -132,13 +148,13 @@ def route_pipe(g, starts, goal, blocked=(), foreign=(), own=(), spans=None, goal
                 G.add_edge(node, nxt, weight=1 + (2 if g.at(*t) == "t" else 0), kind="pipe")
                 todo.append(nxt)
                 axis = "v" if dx == 0 else "h"
-                if t in spans[axis] or t == goal:
+                if t in spans[axis] or t == goal or t in own:  # an entrance can't sit on an existing pipe
                     continue
                 for k in range(2, ptg_gap + 1):  # pieces at most ptg_gap apart (game: max_underground_distance 10)
                     if (t[0] + dx * (k - 1), t[1] + dy * (k - 1)) in spans[axis]:
                         break
                     e = (t[0] + dx * k, t[1] + dy * k)
-                    if not ok(e) or e in spans[axis] or (e == goal and nd != goal_dir):
+                    if not ok(e) or e in spans[axis] or (e == goal and goal_dir is not None and nd != goal_dir) or (e in own and e != goal):
                         continue
                     nxt2 = (e[0], e[1], nd, "u")
                     G.add_edge(node, nxt2, weight=4 + k, kind="ptg", entrance=t, d=nd)

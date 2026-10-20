@@ -56,7 +56,7 @@ for _,e in pairs(s.find_entities_filtered{area={{x1,y1},{x2,y2}}}) do
   local t=e.type
   if t~='resource' and t~='character' and t~='item-entity' and t~='corpse' and t~='entity-ghost' then
     local c=35
-    if t=='tree' or t=='simple-entity' or t=='fish' then c=116 elseif t=='transport-belt' or t=='underground-belt' or t=='splitter' then c=61
+    if t=='tree' or t=='simple-entity' or t=='fish' or e.name:find('crash',1,true) then c=116 elseif t=='transport-belt' or t=='underground-belt' or t=='splitter' then c=61
     elseif t=='pipe' or t=='pipe-to-ground' or t=='storage-tank' or t=='pump' or t=='offshore-pump' then c=112 end
     local bb=e.bounding_box
     for x=math.floor(bb.left_top.x+0.01),math.ceil(bb.right_bottom.x-0.01)-1 do

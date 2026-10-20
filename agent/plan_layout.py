@@ -14,15 +14,25 @@ Constraints
                input bundles (two items on one belt, as they arrive) keep their left/right pairing; a bundle
                may run on a second belt the other way (a U-turn loop at the block's end, like block X B2 -> B5)
   flow         every machine reading a lane has at least one of that lane's producers upstream of it
-               (the purple-block T1 bug: circuits made downstream of their consumers)
+               (the purple-block T1 bug: circuits made downstream of their consumers); the block carries every
+               belt a machine drops onto ("outputs" may list several) and the belt each ingredient is read from
+               ("reads"), so the compiler builds the feeds the rule was checked on (B3: a pipe maker's second
+               output was the boiler maker's only feeder and got dropped)
   inserters    at most 3 per machine side (belt reads + outputs)
   repair       "pinned_belts" [{j, id, dir, lanes, x1, x2, cols}] keep built belts; machines may be "pin"ned
                [row, col] or carry "was" [row, col] (moving one costs more than anything else)
   fluids       machines with a fluid ingredient/product sit at a row end, ports facing out (pipes come from outside);
                a machine's "end": "west"/"east" picks the end (the side its pipe arrives from)
-Objective   fewest belts, then fewest long-handed reads, then narrowest.
+  span         each belt runs from its first to its last user (lo/hi columns of the machines reading or dropping
+               on it), reaching the block edge only where it must: the entry edge for an input bundle, the exit edge
+               for an export, both for a U-turn loop. A belt past its last reader strands what drifts onto it
+               (measured: rocket fuel left on 3 belts past the silo's inserters; 191 such tiles in the 1060 plan)
+Objective   fewest belts, then shortest belts (which also gathers each belt's readers toward its feed), then
+            fewest long-handed reads, then narrowest.
 Spec: {"name", "origin": [x0, y0], "rows": R, "cols": C, "machines": [{"id","recipe","entity"?}],
-       "inputs": [{"left": item, "right": item|null, "name": ...}], "exports": [items]}
+       "inputs": [{"left": item, "right": item|null, "name": ...}], "exports": [items],
+       "clean_exports": true (an export's belt holds only exports: it can leave the block without junk),
+       "chest": [items] (mall exports ending in a chest: two of them may share a belt)}
 """
 import json
 
@@ -148,7 +158,24 @@ def solve(spec, recipes, seconds=30.0):
         for i in ing[k]:
             md.AddBoolOr([d[p, k] for p in ids if (p, k) in d and out[p] == i] +
                          [u[k, i, j, l] for j in range(NB) for l in (0, 1)])
+    # rates of direct insertion: a producer can't hand more than it makes, and a consumer fed only directly must get
+    # what it reads (else it also reads a belt)
+    S = 100
+    for p in ids:
+        fed = [k for k in ids if (p, k) in d]
+        if fed:
+            md.Add(sum(int(S * rate_in[k, out[p]]) * d[p, k] for k in fed) <= int(S * rate_out[p] * 1.05) + 1)
+    for k in ids:
+        for i in ing[k]:
+            srcs = [p for p in ids if (p, k) in d and out[p] == i]
+            if not srcs:
+                continue
+            belt = md.NewBoolVar("")
+            md.AddBoolOr([u[k, i, j, l] for j in range(NB) for l in (0, 1)]).OnlyEnforceIf(belt)
+            need = int(S * rate_in[k, i] * 0.95)
+            md.Add(sum(int(S * min(rate_out[p], rate_in[k, i])) * d[p, k] for p in srcs) + need * belt >= need)
     # outputs: oN[p, j] drops onto belt j above (north lane), oS below (south lane)
+    soft_reads = []   # machines reading an export off its exit belt: allowed, but heavily penalised
     oN, oS = {}, {}
     for p in ids:
         it = out[p]
@@ -173,8 +200,37 @@ def solve(spec, recipes, seconds=30.0):
                 if i in made and i not in ext:  # a lane of a made item must be fed by a producer
                     feeders = [(oN if l == 0 else oS)[p, j] for p in prods]
                     md.AddBoolOr(feeders).OnlyEnforceIf(L[j, l, i])
+                    # ... at least as fast as the machines reading that lane take from it
+                    readers = [k for k in ids if (k, i, j, l) in u]
+                    if readers:
+                        md.Add(sum(int(100 * rate_out[p]) * (oN if l == 0 else oS)[p, j] for p in prods) >=
+                               sum(int(95 * rate_in[k, i]) * u[k, i, j, l] for k in readers))
         if i in exports:
             md.AddBoolOr([L[j, l, i] for j in range(NB) for l in (0, 1)])
+            ext_need = spec.get("export_need", {}).get(i, 0)
+            if ext_need:   # a producer putting the export on a belt gives it all there (no direct hand-off too),
+                for p in prods:   # else the hand-off eats the rate the belt was counted for
+                    direct = [d[p, k] for k in ids if (p, k) in d]
+                    for j in range(NB):
+                        if (p, j) in oN:
+                            for x in direct:
+                                md.AddImplication(oN[p, j], x.Not())
+                                md.AddImplication(oS[p, j], x.Not())
+            if ext_need and prods:   # belt output of the export covers what other blocks read
+                md.Add(sum(int(100 * rate_out[p]) * (oN[p, j] + oS[p, j]) for p in prods for j in range(NB)
+                           if (p, j) in oN) >= int(95 * min(ext_need, sum(rate_out[p] for p in prods))))
+            if spec.get("clean_exports") and spec.get("export_need", {}).get(i):
+                # an export's belt leaves the block: what it carries flows past readers and out, so machines in the
+                # block get the item handed over directly instead
+                soft_reads.extend(v for (k_, i_, j_, l_), v in u.items() if i_ == i)
+            if spec.get("clean_exports"):  # the export's belt carries nothing but exports (it leaves the block)
+                chest = set(spec.get("chest", []))
+                for j in range(NB):
+                    for l in (0, 1):
+                        for k in items:   # nothing on the other lane, not even another export ...
+                            if i in chest and k in chest:
+                                continue  # ... except two mall items: that belt ends in one chest
+                            md.AddImplication(L[j, l, i], L[j, 1 - l, k].Not())
     # input bundles: each placed on one belt, lanes paired by direction (east: left=N, west: left=S)
     bp = {}
     loops = []
@@ -262,20 +318,63 @@ def solve(spec, recipes, seconds=30.0):
             side = ms_by[k].get("end")  # optional: "west"/"east" = which row end (where its pipes come from)
             if side:
                 md.AddBoolOr([e0 if side == "west" else e1])
+    # span: lo/hi columns of each belt's users; edges only where items enter or leave the block
+    lo = {j: md.NewIntVar(0, C - 1, f"lo_{j}") for j in range(NB)}
+    hi = {j: md.NewIntVar(0, C - 1, f"hi_{j}") for j in range(NB)}
+    for j in range(NB):
+        md.Add(lo[j] <= hi[j])
+        for k in ids:
+            lits = [rd[k, j, True], rd[k, j, False]] + ([oN[k, j], oS[k, j]] if (k, j) in oN else [])
+            for lit in lits:
+                md.Add(lo[j] <= col[k]).OnlyEnforceIf(lit)
+                md.Add(hi[j] >= col[k]).OnlyEnforceIf(lit)
+        enter = [bp[bi, j] for bi in range(len(bundles))]
+        for v in enter:                       # an input bundle comes in at the upstream edge
+            md.Add(lo[j] == 0).OnlyEnforceIf([v, east[j]])
+            md.Add(hi[j] == C - 1).OnlyEnforceIf([v, east[j].Not()])
+        for i in exports:                     # an export leaves at the downstream edge
+            for l in (0, 1):
+                md.Add(hi[j] == C - 1).OnlyEnforceIf([L[j, l, i], east[j]])
+                md.Add(lo[j] == 0).OnlyEnforceIf([L[j, l, i], east[j].Not()])
+        if j in pinned:                       # a built belt keeps its extent (its columns)
+            c0, c1 = pinned[j].get("cols", [0, C - 1])
+            md.Add(lo[j] == c0)
+            md.Add(hi[j] == c1)
+    for bi in range(len(bundles)):            # a U-turn loop runs both belts the full width (the turn is at the end)
+        for j in range(NB):
+            for j2 in range(j + 1, NB):
+                for jj in (j, j2):
+                    md.Add(lo[jj] == 0).OnlyEnforceIf([bp[bi, j], bp[bi, j2]])
+                    md.Add(hi[jj] == C - 1).OnlyEnforceIf([bp[bi, j], bp[bi, j2]])
+    span = [hi[j] - lo[j] for j in range(NB)]
     width = md.NewIntVar(0, C - 1, "width")
     md.AddMaxEquality(width, list(col.values()))
-    md.Minimize(200 * sum(moves) + 60 * sum(loops) + 100 * sum(used.values()) + 10 * sum(longs) + 5 * width +
+    md.Minimize(2000 * sum(soft_reads) + 200 * sum(moves) + 60 * sum(loops) + 100 * sum(used.values()) + 20 * sum(span) +
+                10 * sum(longs) + 5 * width +
                 sum(L.values()) + sum(rd.values()))
     sv = cp_model.CpSolver()
-    sv.parameters.max_time_in_seconds = seconds
-    sv.parameters.num_workers = 8
+    sv.parameters.random_seed = 1
+    sv.parameters.num_workers = 1
+    sv.parameters.max_deterministic_time = seconds
     st = sv.Solve(md)
     if st not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         raise ValueError(f"no layout ({sv.StatusName(st)}) with {R} rows x {C} cols")
-    return _to_block(spec, sv, row, col, L, east, used, items, ids, fluid, R, C, NB, oN, oS, out), sv.StatusName(st)
+    blk = _to_block(spec, sv, row, col, L, east, used, items, ids, fluid, R, C, NB, oN, oS, out,
+                    ends={j: (sv.Value(lo[j]), sv.Value(hi[j]), any(sv.Value(bp[bi, j]) for bi in range(len(bundles))),
+                              any(sv.Value(L[j, l, i]) for i in exports for l in (0, 1))) for j in range(NB)})
+    blk["bundle_belts"] = [[f"K{j}" for j in range(NB) if sv.Value(bp[bi, j])] for bi in range(len(bundles))]
+    # the belt each machine reads each ingredient from (the lane the flow rule was checked on): the compiler uses it
+    names = {j: pinned[j].get("id", f"K{j}") if j in pinned else f"K{j}" for j in range(NB)}
+    reads = {}
+    for (k, i, j, l), v in sorted(u.items()):
+        if sv.Value(v):
+            reads.setdefault(k, {}).setdefault(i, names[j])
+    blk["reads"] = reads
+    blk["external"] = sorted(ext)
+    return blk, sv.StatusName(st)
 
 
-def _to_block(spec, sv, row, col, L, east, used, items, ids, fluid, R, C, NB, oN, oS, out):
+def _to_block(spec, sv, row, col, L, east, used, items, ids, fluid, R, C, NB, oN, oS, out, ends=None):
     x0, y0 = spec["origin"]
     ms = {m["id"]: m for m in spec["machines"]}
     machines, outputs = [], {}
@@ -305,13 +404,19 @@ def _to_block(spec, sv, row, col, L, east, used, items, ids, fluid, R, C, NB, oN
             belts.append({"id": pb.get("id", f"K{j}"), "y": yb(j), "x1": pb["x1"], "x2": pb["x2"], "dir": pb["dir"],
                           "lanes": lanes, "build": False})
             continue
-        belts.append({"id": f"K{j}", "y": yb(j), "x1": xa if e else xb, "x2": xb if e else xa,
+        a_, b_ = xa, xb
+        if ends:      # the belt spans its users only; it reaches an edge where an input enters or an export leaves
+            c0, c1, enters, leaves = ends[j]
+            lo_x, hi_x = x0 + 4 * c0 - 1, x0 + 4 * c1 + 1     # a machine's inserters stand at x-1 .. x+1
+            a_ = xa if (enters if e else leaves) else lo_x
+            b_ = xb if (leaves if e else enters) else hi_x
+        belts.append({"id": f"K{j}", "y": yb(j), "x1": a_ if e else b_, "x2": b_ if e else a_,
                       "dir": "east" if e else "west", "lanes": lanes})
     names = {j: spec_pinned[j].get("id", f"K{j}") if j in spec_pinned else f"K{j}" for j in range(NB)}
-    for k in ids:
-        for j in range(NB):
-            if (k, j) in oN and (sv.Value(oN[k, j]) or sv.Value(oS[k, j])):
-                outputs[k] = names[j]
+    for k in ids:   # every belt a machine drops onto (a lane's feeder may be its second output)
+        outs = [names[j] for j in range(NB) if (k, j) in oN and (sv.Value(oN[k, j]) or sv.Value(oS[k, j]))]
+        if outs:
+            outputs[k] = outs[0] if len(outs) == 1 else outs
     return {"name": spec.get("name", "layout"), "machines": machines, "belts": belts, "outputs": outputs,
             "target": spec.get("target")}
 

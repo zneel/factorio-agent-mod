@@ -6,7 +6,9 @@ Spec (JSON):
   "machines": [{"id": "C1", "recipe": "copper-cable", "x": -18.5, "y": -13.5, "entity": "assembling-machine-2"}, ...],
   "belts": [{"id": "BUS", "y": -10.5, "x1": 2.5, "x2": -20.5, "dir": "west",
              "lanes": {"north": "copper-plate", "south": "iron-plate"}, "build": false}, ...],
-  "outputs": {"M": "T2"}          # optional: machine id -> belt id its product goes onto (else direct only)
+  "outputs": {"M": "T2"},         # optional: machine id -> belt id (or a list) its product goes onto (else direct only)
+  "reads": {"M": {"iron-plate": "BUS"}},   # optional: the belt each ingredient is read from (else the first in reach)
+  "external": ["iron-plate"]      # optional: items brought in from outside (their lanes need no producer here)
 }
 Machines are 3x3 (centre on .5). Belts are horizontal rows from x1 to x2 (flow from x1 towards x2).
 Rules the compiler applies:
@@ -17,6 +19,9 @@ Rules the compiler applies:
 - An output onto a belt lands on the belt's FAR lane (as the game does); the compiler checks that the
   far lane is the lane the spec assigns to that product, and refuses the spec otherwise.
 - Every lane must hold one item: two producers or an input and an output on one lane are refused.
+- Flow: an output inserter takes the slot furthest upstream on its belt, an input inserter the one furthest
+  downstream; every reader must pick up at or after some producer's drop tile, and a lane of an item made in the
+  block that is read must be fed by a machine of the block.
 - Poles: greedy set cover with small poles on free tiles until every inserter and machine is powered,
   then a connectivity check (wire reach 7.5) to the nearest existing pole.
 """
@@ -114,6 +119,13 @@ def compile_block(spec, recipes):
 
     # 2) belt inputs and outputs
     outputs = spec.get("outputs", {})
+    reads = spec.get("reads", {})   # machine id -> {item: belt id} (the layout solver's choice), else the first in reach
+    at = {}   # (machine, belt, "in"/"out") -> x of the inserter's pickup / drop tile on that belt
+
+    def reach(b, m):
+        dist = abs(b["y"] - m["y"]) - 1.5  # tiles between the machine edge and the belt centre
+        ok = dist in (1.5, 2.5) and min(b["x1"], b["x2"]) <= m["x"] - 1 and max(b["x1"], b["x2"]) >= m["x"] + 1
+        return dist if ok else None
     for m in machines.values():
         if "ing" not in m:
             continue
@@ -121,13 +133,12 @@ def compile_block(spec, recipes):
         per_belt = {}
         for it in need:
             found = None
-            for b in belts.values():
+            cands = ([belts[reads[m["id"]][it]]] if reads.get(m["id"], {}).get(it) in belts else []) + list(belts.values())
+            for b in cands:
                 for lane, item in b["lanes"].items():
-                    if item == it:
-                        dist = abs(b["y"] - m["y"]) - 1.5  # tiles between the machine edge and the belt centre
-                        if dist in (1.5, 2.5) and min(b["x1"], b["x2"]) <= m["x"] - 1 and max(b["x1"], b["x2"]) >= m["x"] + 1:
-                            found = (b, lane, dist)
-                            break
+                    if item == it and reach(b, m) is not None:
+                        found = (b, lane, reach(b, m))
+                        break
                 if found:
                     break
             if not found:
@@ -136,8 +147,9 @@ def compile_block(spec, recipes):
             b, lane, dist = found
             per_belt.setdefault(b["id"], {"b": b, "dist": dist, "items": []})["items"].append(it)
             use_lane(b["id"], lane, "in", m["id"])
-        if m["id"] in outputs:
-            b = belts[outputs[m["id"]]]
+        outs = outputs.get(m["id"], [])
+        for bid in ([outs] if isinstance(outs, str) else outs):
+            b = belts[bid]
             dist = abs(b["y"] - m["y"]) - 1.5
             if dist not in (1.5, 2.5):
                 errors.append(f"{m['id']}: output belt {b['id']} is out of reach")
@@ -148,15 +160,20 @@ def compile_block(spec, recipes):
                                   f"gives to {b['lanes'].get(far)}")
                 use_lane(b["id"], far, "out", m["id"])
                 per_belt.setdefault(("out", b["id"]), {"b": b, "dist": dist, "items": [m["out"]], "out": True})
-        for key, pb in per_belt.items():
+        # outputs first, on the slot furthest upstream of their belt; inputs on the slot furthest downstream: then a
+        # producer in the same column as a reader (another row) still drops before the reader picks up
+        for key, pb in sorted(per_belt.items(), key=lambda kv: not kv[1].get("out")):
             b = pb["b"]
             row = m["y"] + (-2 if b["y"] < m["y"] else 2)
             kind = "inserter" if pb["dist"] == 1.5 else "long-handed-inserter"
-            t = free_slot([(m["x"] + k, row) for k in (0, -1, 1)])
+            east = b["x2"] >= b["x1"]
+            order = (-1, 0, 1) if east == bool(pb.get("out")) else (1, 0, -1)
+            t = free_slot([(m["x"] + k, row) for k in order])
             if not t:
                 errors.append(f"{m['id']}: no free tile on row {row:g} for the {b['id']} inserter")
                 continue
             claim(t, f"ins {m['id']}<{b['id']}")
+            at[m["id"], b["id"], "out" if pb.get("out") else "in"] = t[0]
             if pb.get("out"):
                 direction = "north" if b["y"] < m["y"] else "south"
             else:
@@ -165,15 +182,22 @@ def compile_block(spec, recipes):
                               "src": m["id"] if pb.get("out") else b["id"], "dst": b["id"] if pb.get("out") else m["id"],
                               "items": pb["items"]})
 
+    made = {m["out"] for m in machines.values() if m.get("out")}
+    external = set(spec.get("external", []))
     for (bid, lane), u in lane_users.items():
-        # flow: a machine reading a lane that this block feeds must be downstream of at least one producer
+        # flow: a machine reading a lane that this block feeds must pick up downstream of at least one producer's
+        # drop (inserter tiles, not machine centres); a lane of an item made here that nothing here feeds is an error
+        item = belts[bid]["lanes"][lane]
+        if not u["out"] and u["in"] and item in made and item not in external and belts[bid].get("build", True):
+            errors.append(f"{bid} {lane} lane ({item}): read by {sorted(u['in'])} but no machine here drops onto it")
         if u["out"]:
             east = belts[bid]["x2"] >= belts[bid]["x1"]
             for c in u["in"]:
-                cx = machines[c]["x"]
-                if not any((machines[p]["x"] <= cx) if east else (machines[p]["x"] >= cx) for p in u["out"]):
+                cx = at.get((c, bid, "in"), machines[c]["x"])
+                drops = [at.get((p, bid, "out"), machines[p]["x"]) for p in u["out"]]
+                if not any((x <= cx) if east else (x >= cx) for x in drops):
                     errors.append(f"{c} reads {bid} {lane} lane upstream of every producer {sorted(u['out'])}: "
-                                  f"it never gets {belts[bid]['lanes'][lane]}")
+                                  f"it never gets {item}")
         if len(u["out"]) > 1:
             notes.append(f"{bid} {lane} lane: several producers {sorted(u['out'])} (fine if they make the same item)")
     for b in belts.values():

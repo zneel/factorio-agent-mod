@@ -368,6 +368,13 @@ tool("base_status", "Factory flow check: % of machines working, then every capac
      lambda b, a: macros.base_status(b, a.get("radius", 48), a.get("x"), a.get("y")))
 
 
+tool("build", "Build a placement plan file (JSON list of {item,x,y,direction,belt_type?,recipe?}) exactly as "
+     "planned, walking as needed; mines trees/rocks in the way, crafts missing items if you have the ingredients. "
+     "Rerun it after fetching items: entities already built are skipped. dry=true only lists what is still to "
+     "place and what you are short of.",
+     obj({"plan": {"type": "string", "description": "path, e.g. runtime/blocks/smelt1.json"},
+          "dry": {"type": "boolean", "default": False}}, ["plan"]),
+     lambda b, a: macros.build(b, a["plan"], a.get("dry", False)))
 tool("belt_line", "Lay transport belts along orthogonal waypoints (tile centers like 10.5,3.5); each belt "
      "points to the next tile. Walks as needed. Craft enough belts first.",
      obj({"points": {"type": "array", "items": {"type": "array", "items": {"type": "number"}},
